@@ -4,9 +4,16 @@ from core.system import TOS
 def main():
     system = TOS()
 
-    print(f"🖥️ {system.name}")
-    print(f"Версия: {system.version}")
-    print(f"Язык: {system.language}")
+    print("🖥️ T-OS")
+    print("=" * 20)
+
+    info = system.info()
+
+    print(f"Название: {info['name']}")
+    print(f"Версия: {info['version']}")
+    print(f"Язык: {info['language']}")
+    print(f"Среда: {info['environment']}")
+    print(f"Debug: {info['debug']}")
 
 
 if __name__ == "__main__":
