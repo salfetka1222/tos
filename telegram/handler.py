@@ -1,5 +1,6 @@
-from telegram.bot import TelegramBot
 from datetime import datetime
+
+from telegram.bot import TelegramBot
 
 from games import GamesSystem
 from core.dev import DeveloperSystem
@@ -8,29 +9,34 @@ from core.group_os import GroupOS
 
 class TelegramHandler:
 
-    def __init__(self, bot, database):
+    def __init__(self, bot: TelegramBot, database):
         self.bot = bot
         self.database = database
 
         self.games = GamesSystem(database)
         self.developer = DeveloperSystem(database)
-        self.group_os = GroupOS(bot)
+        self.group_os = GroupOS(bot, database)
 
         self.file_states = {}
         self.terminal_dirs = {}
         self.command_history = {}
 
-    # =====================================================
-    # AUDIT
-    # =====================================================
+    # =========================================================
+    # BASIC
+    # =========================================================
 
-    def audit(
-        self,
-        actor_id,
-        action,
-        target_id=None,
-        details=""
-    ):
+    def send_message(self, chat_id, text, reply_markup=None):
+        data = {
+            "chat_id": chat_id,
+            "text": text
+        }
+
+        if reply_markup:
+            data["reply_markup"] = reply_markup
+
+        return self.bot.request("sendMessage", data)
+
+    def audit(self, actor_id, action, target_id=None, details=""):
         try:
             self.database.add_audit_log(
                 actor_id=actor_id,
@@ -41,624 +47,789 @@ class TelegramHandler:
         except Exception:
             pass
 
-    # =====================================================
-    # UPDATE
-    # =====================================================
+    def html_escape(self, text):
+        if text is None:
+            return ""
 
-    def handle_update(self, update):
-
-        message = update.get("message")
-
-        if not message:
-            return
-
-        chat = message.get("chat", {})
-        sender = message.get("from", {})
-
-        chat_id = chat.get("id")
-        user_id = sender.get("id")
-
-        text = message.get("text", "").strip()
-
-        if not chat_id or not user_id:
-            return
-
-        username = sender.get("username")
-
-        self.database.create_user(
-            user_id,
-            username
+        return (
+            str(text)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
         )
 
-        if not self.database.has_achievement(
-            user_id,
-            "First Login"
-        ):
-            self.database.unlock_achievement(
-                user_id,
-                "First Login"
-            )
+    # =========================================================
+    # UPDATE
+    # =========================================================
 
-        # =================================================
-        # ACTIVE GAME
-        # =================================================
+    def handle_update(self, update):
+        try:
+            message = update.get("message")
 
-        active_game = self.games.get_active_game(user_id)
+            if not message:
+                return
 
-        if active_game and text:
+            chat = message.get("chat", {})
+            user = message.get("from", {})
 
-            result = None
-            game_type = active_game.get("type")
+            chat_id = chat.get("id")
+            user_id = user.get("id")
 
-            if game_type == "guess":
-                result = self.games.check_guess(
-                    user_id,
-                    text
+            if chat_id is None or user_id is None:
+                return
+
+            text = message.get("text", "")
+            if text is None:
+                text = ""
+
+            username = user.get("username")
+            first_name = user.get("first_name", "User")
+
+            # -------------------------------------------------
+            # USER
+            # -------------------------------------------------
+
+            try:
+                self.database.create_user(
+                    user_id=user_id,
+                    username=username,
+                    first_name=first_name
                 )
-
-            elif game_type == "quiz":
-                result = self.games.check_quiz(
-                    user_id,
-                    text
-                )
-
-            elif game_type == "riddle":
-                result = self.games.check_riddle(
-                    user_id,
-                    text
-                )
-
-            elif game_type == "reaction":
-                result = self.games.check_reaction(
-                    user_id,
-                    text
-                )
-
-            if result:
-
-                self.send_message(
-                    chat_id,
-                    result["message"]
-                )
-
-                if result.get("finished"):
-                    self.show_games(
-                        chat_id,
-                        user_id
+            except Exception:
+                try:
+                    self.database.create_user(
+                        user_id=user_id,
+                        username=username
                     )
+                except Exception:
+                    pass
 
+            # First Login
+            try:
+                if not self.database.has_achievement(user_id, "first_login"):
+                    self.database.unlock_achievement(
+                        user_id,
+                        "first_login"
+                    )
+            except Exception:
+                pass
+
+            # -------------------------------------------------
+            # GROUP STATISTICS
+            # -------------------------------------------------
+
+            chat_type = chat.get("type")
+
+            if chat_type in ("group", "supergroup"):
+                try:
+                    self.group_os.ensure_group(chat_id)
+                    self.group_os.increment_stat(
+                        chat_id,
+                        "messages"
+                    )
+                except Exception:
+                    pass
+
+            # -------------------------------------------------
+            # ACTIVE GAME
+            # -------------------------------------------------
+
+            try:
+                if self.games.handle_input(chat_id, user_id, text):
+                    return
+            except Exception:
+                pass
+
+            # -------------------------------------------------
+            # FILE INPUT
+            # -------------------------------------------------
+
+            if chat_id in self.file_states:
+                if self.handle_file_input(chat_id, user_id, text):
+                    return
+
+            # -------------------------------------------------
+            # TERMINAL
+            # -------------------------------------------------
+
+            if text.startswith("$"):
+                self.handle_terminal(chat_id, user_id, text)
                 return
 
-        # =================================================
-        # FILE INPUT
-        # =================================================
+            # =================================================
+            # COMMANDS
+            # =================================================
 
-        if user_id in self.file_states and text:
-
-            state = self.file_states[user_id]
-
-            if state["type"] == "filename":
-
-                self.create_new_file(
-                    chat_id,
-                    user_id,
-                    text
-                )
-
+            if text == "/start":
+                self.start(chat_id, user_id)
                 return
 
-            if state["type"] == "editing":
-
-                self.save_file_content(
-                    chat_id,
-                    user_id,
-                    text
-                )
-
+            if text == "/new":
+                self.new_dialog(chat_id, user_id)
                 return
 
-        # =================================================
-        # TERMINAL
-        # =================================================
-
-        if text.startswith("$"):
-
-            self.handle_terminal(
-                chat_id,
-                user_id,
-                text
-            )
-
-            return
-
-        # =================================================
-        # DEVELOPER COMMAND
-        # =================================================
-
-        if text == "/dev":
-
-            if not self.developer.is_developer(user_id):
-
-                self.send_message(
-                    chat_id,
-                    "⛔ Доступ запрещён."
-                )
+            if text == "/profile":
+                self.show_profile(chat_id, user_id)
                 return
 
-            self.audit(
-                actor_id=user_id,
-                action="developer_panel",
-                details="Opened developer panel"
-            )
-
-            self.show_developer_panel(chat_id)
-
-            return
-
-        # =================================================
-        # COMMANDS
-        # =================================================
-
-        if text == "/start":
-
-            self.initialize_filesystem(user_id)
-            self.show_home(chat_id)
-
-            return
-
-        if text == "/profile":
-
-            self.show_profile(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        if text == "/achievements":
-
-            self.show_achievements(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        # =================================================
-        # GROUP OS
-        # =================================================
-
-        if text == "/group":
-
-            self.show_group_dashboard(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        # =================================================
-        # GROUP OS BUTTONS
-        # =================================================
-
-        if text == "👥 Участники":
-
-            self.show_group_members(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        if text == "🛡 Модерация":
-
-            self.show_group_moderation(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        if text == "📜 Журнал группы":
-
-            self.show_group_audit_log(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        if text == "⚙️ Права доступа":
-
-            self.show_group_permissions(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        if text == "🤖 Настройки ИИ":
-
-            self.show_group_ai_settings(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        if text == "📊 Статистика группы":
-
-            self.show_group_statistics(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        if text == "🔄 Обновить":
-
-            self.show_group_dashboard(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        if text == "⬅️ Назад в Group OS":
-
-            self.show_group_dashboard(
-                chat_id,
-                user_id
-            )
-
-            return
-
-        # =================================================
-        # MAIN MENU
-        # =================================================
-
-        if text == "📁 Файлы":
-
-            self.show_files(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "📝 Заметки":
-
-            self.show_notes(chat_id)
-            return
-
-        if text == "💻 Терминал":
-
-            self.show_terminal(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "🧮 Калькулятор":
-
-            self.show_calculator(chat_id)
-            return
-
-        if text == "🎮 Игры":
-
-            self.show_games(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "⚙️ Настройки":
-
-            self.show_settings(chat_id)
-            return
-
-        if text == "👤 Профиль":
-
-            self.show_profile(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "🏆 Достижения":
-
-            self.show_achievements(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "📦 App Store":
-
-            self.show_app_store(chat_id)
-            return
-
-        if text == "🖥️ Главное меню":
-
-            self.show_home(chat_id)
-            return
-
-        # =================================================
-        # FILE MENU
-        # =================================================
-
-        if text == "➕ Новый файл":
-
-            self.ask_filename(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "📂 Открыть":
-
-            self.show_directory(
-                chat_id,
-                user_id,
-                "/home/user"
-            )
-            return
-
-        if text == "⬅️ Назад":
-
-            self.show_files(
-                chat_id,
-                user_id
-            )
-            return
-
-        # =================================================
-        # GAME MENU
-        # =================================================
-
-        if text == "🎲 Dice":
-
-            self.start_dice(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "🔢 Guess Number":
-
-            self.start_guess(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "🧠 Quiz":
-
-            self.start_quiz(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "🧩 Riddles":
-
-            self.start_riddle(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "⚡ Reaction":
-
-            self.start_reaction(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "❌ Выйти из игры":
-
-            self.games.cancel_game(user_id)
-
-            self.show_games(
-                chat_id,
-                user_id
-            )
-            return
-
-        # =================================================
-        # DEVELOPER PANEL
-        # =================================================
-
-        if text == "📊 Статистика":
-
-            if not self.developer.is_developer(user_id):
-
-                self.send_message(
-                    chat_id,
-                    "⛔ Доступ запрещён."
-                )
+            if text == "/achievements":
+                self.show_achievements(chat_id, user_id)
                 return
 
-            self.audit(
-                user_id,
-                "view_statistics",
-                details="Viewed system statistics"
-            )
-
-            self.show_developer_stats(chat_id)
-
-            return
-
-        if text == "👥 Пользователи":
-
-            if not self.developer.is_developer(user_id):
-
-                self.send_message(
-                    chat_id,
-                    "⛔ Доступ запрещён."
-                )
+            if text == "/group":
+                self.show_group_dashboard(chat_id, user_id)
                 return
 
-            self.audit(
-                user_id,
-                "view_users",
-                details="Viewed user list"
-            )
-
-            self.show_developer_users(chat_id)
-
-            return
-
-        if text == "💾 База данных":
-
-            if not self.developer.is_developer(user_id):
-
-                self.send_message(
-                    chat_id,
-                    "⛔ Доступ запрещён."
-                )
+            if text == "/dev":
+                self.show_developer(chat_id, user_id)
                 return
 
-            self.audit(
-                user_id,
-                "view_database",
-                details="Viewed database information"
-            )
+            # =================================================
+            # GROUP OS
+            # =================================================
 
-            self.show_database_info(chat_id)
-
-            return
-
-        if text == "🧾 Audit Log":
-
-            if not self.developer.is_developer(user_id):
-
-                self.send_message(
-                    chat_id,
-                    "⛔ Доступ запрещён."
-                )
+            if text == "👥 Участники":
+                self.show_group_members(chat_id, user_id)
                 return
 
-            self.audit(
-                user_id,
-                "view_audit_log",
-                details="Viewed audit log"
-            )
-
-            self.show_audit_log(chat_id)
-
-            return
-
-        if text == "🧪 Experimental Lab":
-
-            if not self.developer.is_developer(user_id):
-
-                self.send_message(
-                    chat_id,
-                    "⛔ Доступ запрещён."
-                )
+            if text == "🛡 Модерация":
+                self.show_group_moderation(chat_id, user_id)
                 return
 
-            self.audit(
-                user_id,
-                "view_experimental_lab",
-                details="Opened Experimental Lab"
-            )
+            if text == "📜 Журнал группы":
+                self.show_group_audit_log(chat_id, user_id)
+                return
+
+            if text == "⚙️ Права доступа":
+                self.show_group_permissions(chat_id, user_id)
+                return
+
+            if text == "🤖 Настройки ИИ":
+                self.show_group_ai_settings(chat_id, user_id)
+                return
+
+            if text == "📊 Статистика группы":
+                self.show_group_statistics(chat_id, user_id)
+                return
+
+            if text == "🟢 ИИ включён":
+                self.toggle_group_ai(chat_id, user_id)
+                return
+
+            if text == "🔴 ИИ выключен":
+                self.toggle_group_ai(chat_id, user_id)
+                return
+
+            if text == "🔄 Обновить":
+                self.show_group_dashboard(chat_id, user_id)
+                return
+
+            if text == "⬅️ Назад в Group OS":
+                self.show_group_dashboard(chat_id, user_id)
+                return
+
+            # =================================================
+            # MAIN MENU
+            # =================================================
+
+            if text == "🖥️ Главное меню":
+                self.show_main_menu(chat_id, user_id)
+                return
+
+            if text == "📁 Файлы":
+                self.show_files(chat_id, user_id)
+                return
+
+            if text == "📝 Заметки":
+                self.show_notes(chat_id, user_id)
+                return
+
+            if text == "💻 Терминал":
+                self.show_terminal(chat_id, user_id)
+                return
+
+            if text == "🧮 Калькулятор":
+                self.show_calculator(chat_id, user_id)
+                return
+
+            if text == "🎮 Игры":
+                self.show_games(chat_id, user_id)
+                return
+
+            if text == "⚙️ Настройки":
+                self.show_settings(chat_id, user_id)
+                return
+
+            if text == "👤 Профиль":
+                self.show_profile(chat_id, user_id)
+                return
+
+            if text == "🏆 Достижения":
+                self.show_achievements(chat_id, user_id)
+                return
+
+            if text == "🛒 App Store":
+                self.show_app_store(chat_id, user_id)
+                return
+
+            if text == "🛠 Developer Panel":
+                self.show_developer(chat_id, user_id)
+                return
+
+            if text == "📊 Статистика":
+                self.show_developer_stats(chat_id, user_id)
+                return
+
+            if text == "👥 Пользователи":
+                self.show_developer_users(chat_id, user_id)
+                return
+
+            if text == "🗄 База данных":
+                self.show_database_info(chat_id, user_id)
+                return
+
+            if text == "📜 Audit Log":
+                self.show_audit_log(chat_id, user_id)
+                return
+
+            if text == "🖥 Система":
+                self.show_system_info(chat_id, user_id)
+                return
+
+            if text == "🧪 Experimental Lab":
+                self.show_experimental_lab(chat_id, user_id)
+                return
+
+            # =================================================
+            # FILES
+            # =================================================
+
+            if text == "📄 Создать файл":
+                self.create_file_start(chat_id, user_id)
+                return
+
+            if text == "📂 Мои файлы":
+                self.show_files(chat_id, user_id)
+                return
+
+            if text == "⬅️ Назад":
+                self.show_main_menu(chat_id, user_id)
+                return
+
+            # =================================================
+            # GAMES
+            # =================================================
+
+            if text == "🎲 Кубик":
+                self.start_dice(chat_id, user_id)
+                return
+
+            if text == "🔢 Угадай число":
+                self.start_guess(chat_id, user_id)
+                return
+
+            if text == "🧠 Викторина":
+                self.start_quiz(chat_id, user_id)
+                return
+
+            if text == "🧩 Загадка":
+                self.start_riddle(chat_id, user_id)
+                return
+
+            if text == "⚡ Реакция":
+                self.start_reaction(chat_id, user_id)
+                return
+
+            # =================================================
+            # DEVELOPER PANEL
+            # =================================================
+
+            if text == "📊 Статистика":
+                self.show_developer_stats(chat_id, user_id)
+                return
+
+            # =================================================
+            # FALLBACK
+            # =================================================
 
             self.send_message(
                 chat_id,
-                (
-                    "🧪 ЭКСПЕРИМЕНТАЛЬНАЯ ЛАБОРАТОРИЯ\n\n"
-                    "Экспериментальные функции пока отключены."
-                )
+                "🤖 <b>T-OS</b>\n\n"
+                "Команда не распознана.\n"
+                "Открой главное меню с помощью /start.",
             )
 
-            return
+        except Exception as e:
+            print(f"[HANDLER ERROR] {e}")
 
-        if text == "⚙️ Система":
-
-            if not self.developer.is_developer(user_id):
-
+            try:
                 self.send_message(
                     chat_id,
-                    "⛔ Доступ запрещён."
+                    "⚠️ <b>T-OS</b>\n\n"
+                    "Произошла внутренняя ошибка."
                 )
-                return
+            except Exception:
+                pass
 
-            self.audit(
-                user_id,
-                "view_system",
-                details="Viewed system information"
-            )
+    # =========================================================
+    # START / MENU
+    # =========================================================
 
-            self.show_system_info(chat_id)
+    def start(self, chat_id, user_id):
+        self.file_states.pop(chat_id, None)
+        self.terminal_dirs.pop(chat_id, None)
 
-            return
+        self.audit(
+            user_id,
+            "start",
+            details="T-OS started"
+        )
 
-        # =================================================
-        # UNKNOWN
-        # =================================================
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "📁 Файлы"},
+                    {"text": "💻 Терминал"}
+                ],
+                [
+                    {"text": "🎮 Игры"},
+                    {"text": "🧮 Калькулятор"}
+                ],
+                [
+                    {"text": "📝 Заметки"},
+                    {"text": "⚙️ Настройки"}
+                ],
+                [
+                    {"text": "👤 Профиль"},
+                    {"text": "🏆 Достижения"}
+                ],
+                [
+                    {"text": "🛒 App Store"},
+                    {"text": "🛠 Developer Panel"}
+                ],
+                [
+                    {"text": "🖥️ Главное меню"}
+                ]
+            ],
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
-            (
-                "❓ Команда не распознана.\n\n"
-                "Используй главное меню."
-            )
+            "🖥️ <b>T-OS</b>\n\n"
+            "Добро пожаловать в виртуальную операционную систему.\n\n"
+            "Выберите нужный раздел:",
+            keyboard
         )
 
-    # =====================================================
-    # TELEGRAM
-    # =====================================================
+    def new_dialog(self, chat_id, user_id):
+        self.file_states.pop(chat_id, None)
+        self.terminal_dirs.pop(chat_id, None)
 
-    def send_message(
-        self,
-        chat_id,
-        text,
-        reply_markup=None
-    ):
+        self.send_message(
+            chat_id,
+            "🔄 <b>Новый диалог</b>\n\n"
+            "Контекст текущего диалога очищен."
+        )
 
-        data = {
-            "chat_id": chat_id,
-            "text": text
+        self.start(chat_id, user_id)
+
+    def show_main_menu(self, chat_id, user_id):
+        self.start(chat_id, user_id)
+
+    # =========================================================
+    # PROFILE
+    # =========================================================
+
+    def show_profile(self, chat_id, user_id):
+        try:
+            user = self.database.get_user(user_id)
+
+            if not user:
+                self.send_message(
+                    chat_id,
+                    "❌ Пользователь не найден."
+                )
+                return
+
+            username = user.get("username") or "нет"
+            first_name = user.get("first_name") or "User"
+
+            text = (
+                "👤 <b>ПРОФИЛЬ</b>\n\n"
+                f"🧑 <b>Имя:</b> "
+                f"{self.html_escape(first_name)}\n"
+                f"🔗 <b>Username:</b> "
+                f"@{self.html_escape(username) if username != 'нет' else 'нет'}\n"
+                f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
+            )
+
+            if "xp" in user:
+                text += f"⭐ <b>XP:</b> {user['xp']}\n"
+
+            if "commands" in user:
+                text += f"⌨️ <b>Команд:</b> {user['commands']}\n"
+
+            self.send_message(chat_id, text)
+
+        except Exception as e:
+            self.send_message(
+                chat_id,
+                f"⚠️ Не удалось загрузить профиль."
+            )
+
+    # =========================================================
+    # ACHIEVEMENTS
+    # =========================================================
+
+    def show_achievements(self, chat_id, user_id):
+        try:
+            achievements = self.database.get_achievements(user_id)
+
+            text = "🏆 <b>ДОСТИЖЕНИЯ</b>\n\n"
+
+            if not achievements:
+                text += "Пока нет полученных достижений."
+            else:
+                for achievement in achievements:
+                    if isinstance(achievement, dict):
+                        name = achievement.get(
+                            "name",
+                            achievement.get("title", "Achievement")
+                        )
+                        description = achievement.get(
+                            "description",
+                            ""
+                        )
+
+                        text += f"🏆 <b>{name}</b>\n"
+
+                        if description:
+                            text += f"{description}\n"
+
+                        text += "\n"
+                    else:
+                        text += f"🏆 {achievement}\n"
+
+            self.send_message(chat_id, text)
+
+        except Exception:
+            self.send_message(
+                chat_id,
+                "⚠️ Не удалось загрузить достижения."
+            )
+
+    # =========================================================
+    # FILES
+    # =========================================================
+
+    def show_files(self, chat_id, user_id):
+        try:
+            files = self.database.get_files(user_id)
+
+            keyboard = {
+                "keyboard": [
+                    [
+                        {"text": "📄 Создать файл"},
+                        {"text": "🔄 Обновить"}
+                    ],
+                    [
+                        {"text": "🖥️ Главное меню"}
+                    ]
+                ],
+                "resize_keyboard": True
+            }
+
+            text = "📁 <b>ФАЙЛЫ</b>\n\n"
+
+            if not files:
+                text += "Файлов пока нет."
+            else:
+                for file in files:
+                    if isinstance(file, dict):
+                        name = file.get("name", "unknown")
+                        path = file.get("path", name)
+                        text += f"📄 <code>{path}</code>\n"
+                    else:
+                        text += f"📄 <code>{file}</code>\n"
+
+            self.send_message(
+                chat_id,
+                text,
+                keyboard
+            )
+
+        except Exception:
+            self.send_message(
+                chat_id,
+                "⚠️ Не удалось открыть файловую систему."
+            )
+
+    def create_file_start(self, chat_id, user_id):
+        self.file_states[chat_id] = {
+            "action": "create",
+            "user_id": user_id
         }
 
-        if reply_markup:
-            data["reply_markup"] = reply_markup
-
-        return self.bot.request(
-            "sendMessage",
-            data
+        self.send_message(
+            chat_id,
+            "📄 <b>Создание файла</b>\n\n"
+            "Отправь путь и имя файла.\n\n"
+            "Пример:\n"
+            "<code>/home/readme.txt</code>\n\n"
+            "Для отмены отправь:\n"
+            "<code>cancel</code>"
         )
 
-    # =====================================================
+    def handle_file_input(self, chat_id, user_id, text):
+        state = self.file_states.get(chat_id)
+
+        if not state:
+            return False
+
+        if text.lower() == "cancel":
+            self.file_states.pop(chat_id, None)
+
+            self.send_message(
+                chat_id,
+                "❌ Операция отменена."
+            )
+
+            return True
+
+        if state.get("action") == "create":
+            path = text.strip()
+
+            if not path:
+                self.send_message(
+                    chat_id,
+                    "⚠️ Укажи путь к файлу."
+                )
+                return True
+
+            try:
+                self.database.create_file(
+                    user_id=user_id,
+                    path=path,
+                    content=""
+                )
+
+                self.file_states.pop(chat_id, None)
+
+                self.audit(
+                    user_id,
+                    "file_create",
+                    details=path
+                )
+
+                self.send_message(
+                    chat_id,
+                    "✅ <b>Файл создан</b>\n\n"
+                    f"📄 <code>{self.html_escape(path)}</code>"
+                )
+
+            except Exception as e:
+                self.send_message(
+                    chat_id,
+                    "⚠️ Не удалось создать файл."
+                )
+
+            return True
+
+        return False
+
+    # =========================================================
+    # TERMINAL
+    # =========================================================
+
+    def show_terminal(self, chat_id, user_id):
+        current = self.terminal_dirs.get(
+            chat_id,
+            "/"
+        )
+
+        self.send_message(
+            chat_id,
+            "💻 <b>T-OS TERMINAL</b>\n\n"
+            f"📁 Текущий каталог: <code>{current}</code>\n\n"
+            "Команды вводятся через <code>$</code>.\n\n"
+            "<code>$ help</code>\n"
+            "<code>$ ls</code>\n"
+            "<code>$ pwd</code>\n"
+            "<code>$ cd /</code>\n"
+            "<code>$ clear</code>"
+        )
+
+    def handle_terminal(self, chat_id, user_id, text):
+        command = text[1:].strip()
+
+        if not command:
+            return
+
+        self.command_history.setdefault(
+            chat_id,
+            []
+        ).append(command)
+
+        try:
+            self.database.increment_commands(user_id)
+        except Exception:
+            pass
+
+        parts = command.split()
+        cmd = parts[0].lower()
+
+        current_dir = self.terminal_dirs.get(
+            chat_id,
+            "/"
+        )
+
+        if cmd == "help":
+            output = (
+                "T-OS Terminal\n\n"
+                "help   — список команд\n"
+                "ls     — список файлов\n"
+                "pwd    — текущий каталог\n"
+                "cd     — перейти в каталог\n"
+                "clear  — очистить экран"
+            )
+
+        elif cmd == "pwd":
+            output = current_dir
+
+        elif cmd == "clear":
+            output = "Экран терминала очищен."
+
+        elif cmd == "ls":
+            try:
+                files = self.database.get_files(user_id)
+
+                if not files:
+                    output = "Каталог пуст."
+
+                else:
+                    result = []
+
+                    for file in files:
+                        if isinstance(file, dict):
+                            result.append(
+                                str(
+                                    file.get(
+                                        "path",
+                                        file.get(
+                                            "name",
+                                            "unknown"
+                                        )
+                                    )
+                                )
+                            )
+                        else:
+                            result.append(str(file))
+
+                    output = "\n".join(result)
+
+            except Exception:
+                output = "Ошибка чтения каталога."
+
+        elif cmd == "cd":
+            if len(parts) < 2:
+                output = "Использование: $ cd /path"
+
+            else:
+                new_dir = parts[1]
+
+                if not new_dir.startswith("/"):
+                    if current_dir == "/":
+                        new_dir = "/" + new_dir
+                    else:
+                        new_dir = (
+                            current_dir.rstrip("/")
+                            + "/"
+                            + new_dir
+                        )
+
+                self.terminal_dirs[chat_id] = new_dir
+                output = f"Перешёл в {new_dir}"
+
+        else:
+            output = (
+                f"Команда <code>{self.html_escape(cmd)}</code> "
+                "неизвестна.\n\n"
+                "Используй <code>$ help</code>."
+            )
+
+        self.send_message(
+            chat_id,
+            "💻 <b>Terminal</b>\n\n"
+            f"<pre>{self.html_escape(output)}</pre>"
+        )
+
+    # =========================================================
+    # NOTES
+    # =========================================================
+
+    def show_notes(self, chat_id, user_id):
+        self.send_message(
+            chat_id,
+            "📝 <b>ЗАМЕТКИ</b>\n\n"
+            "Модуль заметок пока находится в разработке."
+        )
+
+    # =========================================================
+    # CALCULATOR
+    # =========================================================
+
+    def show_calculator(self, chat_id, user_id):
+        self.send_message(
+            chat_id,
+            "🧮 <b>КАЛЬКУЛЯТОР</b>\n\n"
+            "Модуль калькулятора находится в разработке."
+        )
+
+    # =========================================================
+    # SETTINGS
+    # =========================================================
+
+    def show_settings(self, chat_id, user_id):
+        self.send_message(
+            chat_id,
+            "⚙️ <b>НАСТРОЙКИ</b>\n\n"
+            "Модуль настроек T-OS находится в разработке."
+        )
+
+    # =========================================================
+    # APP STORE
+    # =========================================================
+
+    def show_app_store(self, chat_id, user_id):
+        self.send_message(
+            chat_id,
+            "🛒 <b>T-OS APP STORE</b>\n\n"
+            "Каталог приложений находится в разработке."
+        )
+
+    # =========================================================
     # GROUP OS
-    # =====================================================
+    # =========================================================
 
-    def get_group_chat(
-        self,
-        chat_id
-    ):
+    def get_group_chat(self, chat_id):
+        try:
+            result = self.bot.request(
+                "getChat",
+                {
+                    "chat_id": chat_id
+                }
+            )
 
-        response = self.bot.request(
-            "getChat",
-            {
-                "chat_id": chat_id
-            }
-        )
+            if result and result.get("ok"):
+                return result.get("result", {})
 
-        if not response or not response.get("ok"):
-            return None
+        except Exception:
+            pass
 
-        return response.get("result", {})
+        return None
 
-    def is_group(
-        self,
-        chat_id
-    ):
-
-        chat = self.get_group_chat(chat_id)
-
+    def is_group(self, chat):
         if not chat:
             return False
 
@@ -667,31 +838,25 @@ class TelegramHandler:
             "supergroup"
         )
 
-    def get_group_member(
-        self,
-        chat_id,
-        user_id
-    ):
+    def get_group_member(self, chat_id, user_id):
+        try:
+            result = self.bot.request(
+                "getChatMember",
+                {
+                    "chat_id": chat_id,
+                    "user_id": user_id
+                }
+            )
 
-        response = self.bot.request(
-            "getChatMember",
-            {
-                "chat_id": chat_id,
-                "user_id": user_id
-            }
-        )
+            if result and result.get("ok"):
+                return result.get("result", {})
 
-        if not response or not response.get("ok"):
-            return None
+        except Exception:
+            pass
 
-        return response.get("result")
+        return None
 
-    def is_group_admin(
-        self,
-        chat_id,
-        user_id
-    ):
-
+    def is_group_admin(self, chat_id, user_id):
         member = self.get_group_member(
             chat_id,
             user_id
@@ -701,2128 +866,923 @@ class TelegramHandler:
             return False
 
         return member.get("status") in (
-            "creator",
-            "administrator"
+            "administrator",
+            "creator"
         )
 
-    def get_bot_member(
-        self,
-        chat_id
-    ):
+    def get_bot_member(self, chat_id):
+        try:
+            me = self.bot.request(
+                "getMe",
+                {}
+            )
 
-        me_response = self.bot.request(
-            "getMe",
-            {}
-        )
+            if not me or not me.get("ok"):
+                return None
 
-        if not me_response or not me_response.get("ok"):
+            bot_id = me["result"]["id"]
+
+            return self.get_group_member(
+                chat_id,
+                bot_id
+            )
+
+        except Exception:
             return None
 
-        bot_user = me_response.get(
-            "result",
-            {}
-        )
+    def show_group_dashboard(self, chat_id, user_id):
+        chat = self.get_group_chat(chat_id)
 
-        bot_id = bot_user.get("id")
-
-        if not bot_id:
-            return None
-
-        return self.get_group_member(
-            chat_id,
-            bot_id
-        )
-
-    def show_group_dashboard(
-        self,
-        chat_id,
-        user_id
-    ):
-
-        chat_data = self.get_group_chat(chat_id)
-
-        if not chat_data:
-
+        if not self.is_group(chat):
             self.send_message(
                 chat_id,
-                "❌ Не удалось получить информацию о группе."
+                "⚠️ <b>Group OS</b>\n\n"
+                "Этот раздел работает только внутри группы."
             )
-
             return
 
-        chat_type = chat_data.get(
-            "type",
-            "unknown"
+        try:
+            self.group_os.ensure_group(chat_id)
+        except Exception:
+            pass
+
+        title = chat.get("title", "Без названия")
+        username = chat.get("username")
+
+        member_count = "—"
+
+        try:
+            member_count = self.group_os.get_member_count(
+                chat_id
+            )
+        except Exception:
+            pass
+
+        chat_type = self.translate_chat_type(
+            chat.get("type")
         )
 
-        if chat_type not in (
-            "group",
-            "supergroup"
-        ):
-
-            self.send_message(
+        try:
+            self.group_os.audit(
                 chat_id,
-                (
-                    "⚠️ <b>GROUP OS</b>\n\n"
-                    "Group OS доступна только "
-                    "в Telegram-группах."
-                )
+                user_id,
+                "group_dashboard",
+                "Открыта панель Group OS"
             )
+        except Exception:
+            pass
 
-            return
-
-        title = chat_data.get(
-            "title",
-            "Без названия"
-        )
-
-        username = chat_data.get(
-            "username"
-        )
-
-        if username:
-            username = "@" + username
-        else:
-            username = "нет"
-
-        members_response = self.bot.request(
-            "getChatMemberCount",
-            {
-                "chat_id": chat_id
-            }
-        )
-
-        if (
-            members_response
-            and members_response.get("ok")
-        ):
-            members = members_response.get(
-                "result",
-                "?"
-            )
-        else:
-            members = "?"
-
-        self.audit(
-            actor_id=user_id,
-            action="group_dashboard",
-            target_id=chat_id,
-            details="Opened Group OS dashboard"
-        )
-
-        keyboard = [
-            [
-                {"text": "👥 Участники"},
-                {"text": "🛡 Модерация"}
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "👥 Участники"},
+                    {"text": "🛡 Модерация"}
+                ],
+                [
+                    {"text": "📜 Журнал группы"},
+                    {"text": "⚙️ Права доступа"}
+                ],
+                [
+                    {"text": "🤖 Настройки ИИ"},
+                    {"text": "📊 Статистика группы"}
+                ],
+                [
+                    {"text": "🔄 Обновить"}
+                ],
+                [
+                    {"text": "🖥️ Главное меню"}
+                ]
             ],
-            [
-                {"text": "📜 Журнал группы"},
-                {"text": "⚙️ Права доступа"}
-            ],
-            [
-                {"text": "🤖 Настройки ИИ"},
-                {"text": "📊 Статистика группы"}
-            ],
-            [
-                {"text": "🔄 Обновить"}
-            ],
-            [
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
+
+        text = (
+            "🖥️ <b>T-OS GROUP OS</b>\n\n"
+            "🏠 <b>GROUP DASHBOARD</b>\n\n"
+            f"📌 <b>Название:</b> "
+            f"{self.html_escape(title)}\n"
+            f"🆔 <b>ID:</b> "
+            f"<code>{chat_id}</code>\n"
+            f"💬 <b>Тип:</b> {chat_type}\n"
+            f"🔗 <b>Username:</b> "
+            f"{('@' + username) if username else 'нет'}\n"
+            f"👥 <b>Участников:</b> {member_count}\n\n"
+            "🟢 <b>T-OS:</b> ACTIVE\n\n"
+            "⚙️ <b>GROUP OS MODULES</b>\n"
+            "├ 👥 Members\n"
+            "├ 🛡 Moderation\n"
+            "├ 📜 Group Audit Log\n"
+            "├ ⚙️ Permissions\n"
+            "├ 🤖 AI Settings\n"
+            "└ 📊 Statistics"
+        )
 
         self.send_message(
             chat_id,
-            (
-                "🖥️ <b>T-OS GROUP OS</b>\n\n"
-                "🏠 <b>ПАНЕЛЬ ГРУППЫ</b>\n\n"
-                f"📌 <b>Название:</b> {title}\n"
-                f"🆔 <b>ID:</b> <code>{chat_id}</code>\n"
-                f"💬 <b>Тип:</b> {self.translate_chat_type(chat_type)}\n"
-                f"🔗 <b>Username:</b> {username}\n"
-                f"👥 <b>Участников:</b> {members}\n\n"
-                "🟢 <b>T-OS:</b> АКТИВЕН\n\n"
-                "⚙️ <b>МОДУЛИ GROUP OS</b>\n"
-                "├ 👥 Участники\n"
-                "├ 🛡 Модерация\n"
-                "├ 📜 Журнал группы\n"
-                "├ ⚙️ Права доступа\n"
-                "├ 🤖 Настройки ИИ\n"
-                "└ 📊 Статистика"
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            text,
+            keyboard
         )
 
-    def translate_chat_type(
-        self,
-        chat_type
-    ):
-
-        types = {
+    def translate_chat_type(self, chat_type):
+        values = {
+            "private": "личный чат",
             "group": "группа",
             "supergroup": "супергруппа",
-            "private": "личный чат",
             "channel": "канал"
         }
 
-        return types.get(
+        return values.get(
             chat_type,
-            chat_type
+            str(chat_type)
         )
 
-    # =====================================================
+    # =========================================================
     # GROUP MEMBERS
-    # =====================================================
+    # =========================================================
 
-    def show_group_members(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_group_members(self, chat_id, user_id):
+        chat = self.get_group_chat(chat_id)
 
-        if not self.is_group(chat_id):
-
+        if not self.is_group(chat):
             self.send_message(
                 chat_id,
-                "⚠️ Этот раздел работает только в группе."
+                "⚠️ Раздел доступен только в группе."
             )
-
             return
-
-        self.audit(
-            actor_id=user_id,
-            action="group_members",
-            target_id=chat_id,
-            details="Opened group members"
-        )
 
         try:
             text = self.group_os.render_members(
                 chat_id
             )
-        except Exception as error:
-
-            text = (
-                "❌ Не удалось загрузить список участников.\n\n"
-                f"<code>{error}</code>"
-            )
-
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
-            ],
-            [
-                {"text": "⬅️ Назад в Group OS"},
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
-
-        self.send_message(
-            chat_id,
-            text,
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
-        )
-
-    # =====================================================
-    # GROUP MODERATION
-    # =====================================================
-
-    def show_group_moderation(
-        self,
-        chat_id,
-        user_id
-    ):
-
-        if not self.is_group(chat_id):
-
-            self.send_message(
-                chat_id,
-                "⚠️ Модерация доступна только в группе."
-            )
-
-            return
-
-        user_admin = self.is_group_admin(
-            chat_id,
-            user_id
-        )
-
-        bot_member = self.get_bot_member(
-            chat_id
-        )
-
-        if bot_member:
-            bot_status = bot_member.get(
-                "status",
-                "unknown"
-            )
-
-            bot_can_delete = bot_member.get(
-                "can_delete_messages",
-                False
-            )
-
-            bot_can_restrict = bot_member.get(
-                "can_restrict_members",
-                False
-            )
-
-            bot_can_promote = bot_member.get(
-                "can_promote_members",
-                False
-            )
-        else:
-            bot_status = "unknown"
-            bot_can_delete = False
-            bot_can_restrict = False
-            bot_can_promote = False
-
-        user_status = (
-            "🟢 Администратор"
-            if user_admin
-            else "👤 Участник"
-        )
-
-        self.audit(
-            actor_id=user_id,
-            action="group_moderation",
-            target_id=chat_id,
-            details="Opened moderation panel"
-        )
-
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
-            ],
-            [
-                {"text": "⬅️ Назад в Group OS"}
-            ],
-            [
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
-
-        self.send_message(
-            chat_id,
-            (
-                "🛡️ <b>МОДЕРАЦИЯ</b>\n\n"
-                f"👤 <b>Ваш статус:</b> {user_status}\n\n"
-                f"🤖 <b>Статус бота:</b> {bot_status}\n\n"
-                "🔐 <b>Права бота</b>\n"
-                f"├ 🗑 Удаление сообщений: "
-                f"{'🟢' if bot_can_delete else '🔴'}\n"
-                f"├ 🔇 Ограничение участников: "
-                f"{'🟢' if bot_can_restrict else '🔴'}\n"
-                f"└ 👑 Управление администраторами: "
-                f"{'🟢' if bot_can_promote else '🔴'}\n\n"
-                "ℹ️ <i>Инструменты предупреждений, "
-                "мутов и банов будут добавлены "
-                "в следующий этап модуля.</i>"
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
-        )
-
-    # =====================================================
-    # GROUP AUDIT LOG
-    # =====================================================
-
-    def show_group_audit_log(
-        self,
-        chat_id,
-        user_id
-    ):
-
-        if not self.is_group(chat_id):
-
-            self.send_message(
-                chat_id,
-                "⚠️ Журнал группы доступен только в группе."
-            )
-
-            return
-
-        self.audit(
-            actor_id=user_id,
-            action="group_audit_log",
-            target_id=chat_id,
-            details="Opened group audit log"
-        )
-
-        logs = []
-
-        try:
-            all_logs = self.database.get_audit_logs(
-                limit=100
-            )
-
-            for log in all_logs:
-
-                target = log.get("target_id")
-
-                if str(target) == str(chat_id):
-                    logs.append(log)
-
         except Exception:
-            logs = []
-
-        lines = [
-            "📜 <b>ЖУРНАЛ ГРУППЫ</b>",
-            "",
-            f"🆔 Группа: <code>{chat_id}</code>",
-            ""
-        ]
-
-        if not logs:
-
-            lines.extend([
-                "📭 Записей пока нет.",
-                "",
-                "Новые действия T-OS будут "
-                "появляться здесь."
-            ])
-
-        else:
-
-            lines.append(
-                f"📌 Последние событий: {len(logs)}"
+            text = (
+                "👥 <b>УЧАСТНИКИ ГРУППЫ</b>\n\n"
+                "Не удалось получить список участников."
             )
-            lines.append("")
 
-            for log in logs[:20]:
-
-                timestamp = log.get(
-                    "created_at",
-                    "?"
-                )
-
-                actor = log.get(
-                    "actor_id",
-                    "?"
-                )
-
-                action = log.get(
-                    "action",
-                    "?"
-                )
-
-                details = log.get(
-                    "details",
-                    ""
-                )
-
-                lines.append(
-                    f"🕐 {timestamp}"
-                )
-
-                lines.append(
-                    f"👤 {actor} → {action}"
-                )
-
-                if details:
-                    lines.append(
-                        f"📝 {details}"
-                    )
-
-                lines.append("")
-
-        text = "\n".join(lines)
-
-        if len(text) > 3900:
-            text = text[:3900] + "\n\n..."
-
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"},
+                    {"text": "⬅️ Назад в Group OS"}
+                ]
             ],
-            [
-                {"text": "⬅️ Назад в Group OS"},
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
             text,
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            keyboard
         )
 
-    # =====================================================
-    # GROUP PERMISSIONS
-    # =====================================================
+    # =========================================================
+    # MODERATION
+    # =========================================================
 
-    def show_group_permissions(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_group_moderation(self, chat_id, user_id):
+        chat = self.get_group_chat(chat_id)
 
-        if not self.is_group(chat_id):
-
+        if not self.is_group(chat):
             self.send_message(
                 chat_id,
-                "⚠️ Права доступа доступны только в группе."
+                "⚠️ Раздел доступен только в группе."
             )
-
             return
 
-        user_member = self.get_group_member(
+        is_admin = self.is_group_admin(
             chat_id,
             user_id
         )
 
         bot_member = self.get_bot_member(
             chat_id
-        )
-
-        user_status = (
-            user_member.get("status", "unknown")
-            if user_member
-            else "unknown"
         )
 
         bot_status = (
-            bot_member.get("status", "unknown")
+            bot_member.get("status")
             if bot_member
             else "unknown"
         )
 
-        self.audit(
-            actor_id=user_id,
-            action="group_permissions",
-            target_id=chat_id,
-            details="Opened group permissions"
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"},
+                    {"text": "⬅️ Назад в Group OS"}
+                ]
+            ],
+            "resize_keyboard": True
+        }
+
+        text = (
+            "🛡 <b>МОДЕРАЦИЯ</b>\n\n"
+            f"👤 <b>Ваш статус:</b> "
+            f"{'Администратор' if is_admin else 'Участник'}\n"
+            f"🤖 <b>Статус T-OS:</b> "
+            f"{self.translate_member_status(bot_status)}\n\n"
+            "Доступные возможности модуля:\n"
+            "├ 🔇 Управление участниками\n"
+            "├ 🚫 Блокировка\n"
+            "├ 🔓 Разблокировка\n"
+            "└ ⚙️ Контроль прав\n\n"
         )
 
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
-            ],
-            [
-                {"text": "⬅️ Назад в Group OS"}
-            ],
-            [
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
+        if not is_admin:
+            text += (
+                "ℹ️ Управление модерацией доступно "
+                "администраторам группы."
+            )
+        else:
+            text += (
+                "🟢 У вас есть права администратора.\n"
+                "Дополнительные действия можно выполнять "
+                "после выбора конкретного участника."
+            )
 
         self.send_message(
             chat_id,
-            (
-                "⚙️ <b>ПРАВА ДОСТУПА</b>\n\n"
-                "👤 <b>Ваш аккаунт</b>\n"
-                f"Статус: <b>{self.translate_member_status(user_status)}</b>\n\n"
-                "🤖 <b>T-OS</b>\n"
-                f"Статус: <b>{self.translate_member_status(bot_status)}</b>\n\n"
-                "🔐 <b>Уровни доступа</b>\n"
-                "├ 👑 Владелец\n"
-                "├ 🛡 Администратор\n"
-                "├ 🔧 Модератор T-OS\n"
-                "└ 👤 Участник\n\n"
-                "ℹ️ Управление ролями T-OS будет "
-                "добавлено после создания системы "
-                "разрешений группы."
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            text,
+            keyboard
         )
 
-    def translate_member_status(
-        self,
-        status
-    ):
-
-        statuses = {
-            "creator": "Владелец 👑",
-            "administrator": "Администратор 🛡️",
-            "member": "Участник 👤",
-            "restricted": "Ограничен 🔇",
+    def translate_member_status(self, status):
+        values = {
+            "creator": "Создатель",
+            "administrator": "Администратор",
+            "member": "Участник",
+            "restricted": "Ограничен",
             "left": "Вышел",
             "kicked": "Заблокирован"
         }
 
-        return statuses.get(
+        return values.get(
             status,
-            status
+            "Неизвестно"
         )
 
-    # =====================================================
-    # GROUP AI SETTINGS
-    # =====================================================
+    # =========================================================
+    # GROUP AUDIT LOG
+    # =========================================================
 
-    def show_group_ai_settings(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_group_audit_log(self, chat_id, user_id):
+        chat = self.get_group_chat(chat_id)
 
-        if not self.is_group(chat_id):
-
+        if not self.is_group(chat):
             self.send_message(
                 chat_id,
-                "⚠️ Настройки ИИ доступны только в группе."
+                "⚠️ Раздел доступен только в группе."
             )
-
             return
 
-        self.audit(
-            actor_id=user_id,
-            action="group_ai_settings",
-            target_id=chat_id,
-            details="Opened group AI settings"
-        )
+        try:
+            logs = self.group_os.get_audit_log(
+                chat_id,
+                50
+            )
+        except Exception:
+            logs = []
 
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
+        text = "📜 <b>GROUP AUDIT LOG</b>\n\n"
+
+        if not logs:
+            text += "Журнал пока пуст."
+
+        else:
+            for log in logs:
+                if isinstance(log, dict):
+                    actor = log.get(
+                        "actor_id",
+                        "?"
+                    )
+
+                    action = log.get(
+                        "action",
+                        "unknown"
+                    )
+
+                    details = log.get(
+                        "details",
+                        ""
+                    )
+
+                    created = log.get(
+                        "created_at",
+                        ""
+                    )
+
+                    text += (
+                        f"👤 <code>{actor}</code>\n"
+                        f"⚙️ <b>{self.html_escape(action)}</b>\n"
+                    )
+
+                    if details:
+                        text += (
+                            f"📝 {self.html_escape(details)}\n"
+                        )
+
+                    if created:
+                        text += (
+                            f"🕒 {created}\n"
+                        )
+
+                    text += "\n"
+
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"},
+                    {"text": "⬅️ Назад в Group OS"}
+                ]
             ],
-            [
-                {"text": "⬅️ Назад в Group OS"}
-            ],
-            [
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
-            (
-                "🤖 <b>НАСТРОЙКИ ИИ</b>\n\n"
-                "🟢 <b>T-OS AI:</b> подключён\n\n"
-                "⚙️ <b>Текущие настройки</b>\n"
-                "├ 💬 Ответы: доступны\n"
-                "├ 🧠 Контекст группы: не настроен\n"
-                "├ 🔒 Ограничения: стандартные\n"
-                "└ 👥 Режим: общий\n\n"
-                "ℹ️ Настоящее управление ИИ "
-                "для группы добавим отдельным этапом.\n\n"
-                "Здесь позже можно будет настроить "
-                "режим работы T-OS именно для этой группы."
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            text,
+            keyboard
         )
 
-    # =====================================================
-    # GROUP STATISTICS
-    # =====================================================
+    # =========================================================
+    # PERMISSIONS
+    # =========================================================
 
-    def show_group_statistics(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_group_permissions(self, chat_id, user_id):
+        chat = self.get_group_chat(chat_id)
 
-        if not self.is_group(chat_id):
-
+        if not self.is_group(chat):
             self.send_message(
                 chat_id,
-                "⚠️ Статистика доступна только в группе."
+                "⚠️ Раздел доступен только в группе."
             )
-
             return
 
-        chat = self.get_group_chat(
+        member = self.get_group_member(
+            chat_id,
+            user_id
+        )
+
+        status = (
+            member.get("status")
+            if member
+            else "unknown"
+        )
+
+        is_admin = status in (
+            "creator",
+            "administrator"
+        )
+
+        bot_member = self.get_bot_member(
             chat_id
         )
 
-        members_response = self.bot.request(
-            "getChatMemberCount",
-            {
-                "chat_id": chat_id
-            }
+        bot_admin = (
+            bot_member
+            and bot_member.get("status")
+            in ("creator", "administrator")
         )
 
-        if (
-            members_response
-            and members_response.get("ok")
-        ):
-            members = members_response.get(
-                "result",
-                "?"
+        text = (
+            "⚙️ <b>ПРАВА ДОСТУПА</b>\n\n"
+            f"👤 <b>Ваш статус:</b> "
+            f"{self.translate_member_status(status)}\n\n"
+            "👤 <b>Ваши права:</b>\n"
+            f"{'🟢' if is_admin else '🔴'} "
+            f"Администратор\n\n"
+            "🤖 <b>Права T-OS:</b>\n"
+            f"{'🟢' if bot_admin else '🔴'} "
+            f"Администратор\n"
+        )
+
+        if bot_member:
+            if bot_member.get("can_delete_messages"):
+                text += "🟢 Удаление сообщений\n"
+
+            if bot_member.get("can_restrict_members"):
+                text += "🟢 Ограничение участников\n"
+
+            if bot_member.get("can_invite_users"):
+                text += "🟢 Приглашение пользователей\n"
+
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"},
+                    {"text": "⬅️ Назад в Group OS"}
+                ]
+            ],
+            "resize_keyboard": True
+        }
+
+        self.send_message(
+            chat_id,
+            text,
+            keyboard
+        )
+
+    # =========================================================
+    # GROUP AI SETTINGS
+    # =========================================================
+
+    def show_group_ai_settings(self, chat_id, user_id):
+        chat = self.get_group_chat(chat_id)
+
+        if not self.is_group(chat):
+            self.send_message(
+                chat_id,
+                "⚠️ Раздел доступен только в группе."
             )
-        else:
-            members = "?"
+            return
 
-        title = (
-            chat.get("title", "Без названия")
-            if chat
-            else "Без названия"
+        try:
+            settings = self.group_os.get_settings(
+                chat_id
+            )
+        except Exception:
+            settings = {}
+
+        ai_enabled = settings.get(
+            "ai_enabled",
+            True
         )
 
+        if isinstance(ai_enabled, str):
+            ai_enabled = ai_enabled.lower() in (
+                "1",
+                "true",
+                "yes",
+                "on"
+            )
+
+        status_text = (
+            "🟢 ИИ включён"
+            if ai_enabled
+            else "🔴 ИИ выключен"
+        )
+
+        keyboard = {
+            "keyboard": [
+                [
+                    {
+                        "text": status_text
+                    }
+                ],
+                [
+                    {"text": "🔄 Обновить"},
+                    {"text": "⬅️ Назад в Group OS"}
+                ]
+            ],
+            "resize_keyboard": True
+        }
+
+        text = (
+            "🤖 <b>НАСТРОЙКИ ИИ</b>\n\n"
+            f"Статус: <b>{'ВКЛЮЧЕН' if ai_enabled else 'ВЫКЛЮЧЕН'}</b>\n\n"
+            "Этот параметр хранится отдельно для каждой группы.\n\n"
+            "Нажми кнопку статуса, чтобы изменить настройку."
+        )
+
+        self.send_message(
+            chat_id,
+            text,
+            keyboard
+        )
+
+    def toggle_group_ai(self, chat_id, user_id):
+        chat = self.get_group_chat(chat_id)
+
+        if not self.is_group(chat):
+            self.send_message(
+                chat_id,
+                "⚠️ Раздел доступен только в группе."
+            )
+            return
+
+        if not self.is_group_admin(
+            chat_id,
+            user_id
+        ):
+            self.send_message(
+                chat_id,
+                "⛔ <b>Недостаточно прав</b>\n\n"
+                "Изменять настройки ИИ может только "
+                "администратор группы."
+            )
+            return
+
+        try:
+            new_value = self.group_os.toggle_ai(
+                chat_id
+            )
+
+            self.group_os.audit(
+                chat_id,
+                user_id,
+                "ai_toggle",
+                f"AI enabled: {new_value}"
+            )
+
+            self.show_group_ai_settings(
+                chat_id,
+                user_id
+            )
+
+        except Exception:
+            self.send_message(
+                chat_id,
+                "⚠️ Не удалось изменить настройку ИИ."
+            )
+
+    # =========================================================
+    # GROUP STATISTICS
+    # =========================================================
+
+    def show_group_statistics(self, chat_id, user_id):
+        chat = self.get_group_chat(chat_id)
+
+        if not self.is_group(chat):
+            self.send_message(
+                chat_id,
+                "⚠️ Раздел доступен только в группе."
+            )
+            return
+
+        try:
+            statistics = self.group_os.get_statistics(
+                chat_id
+            )
+        except Exception:
+            statistics = {}
+
+        try:
+            settings = self.group_os.get_settings(
+                chat_id
+            )
+        except Exception:
+            settings = {}
+
+        messages = statistics.get(
+            "messages",
+            0
+        )
+
+        commands = statistics.get(
+            "commands",
+            0
+        )
+
+        users = statistics.get(
+            "users",
+            0
+        )
+
+        moderation = statistics.get(
+            "moderation_actions",
+            0
+        )
+
+        ai_enabled = settings.get(
+            "ai_enabled",
+            True
+        )
+
+        if isinstance(ai_enabled, str):
+            ai_enabled = ai_enabled.lower() in (
+                "1",
+                "true",
+                "yes",
+                "on"
+            )
+
+        text = (
+            "📊 <b>СТАТИСТИКА ГРУППЫ</b>\n\n"
+            f"💬 <b>Сообщений:</b> {messages}\n"
+            f"⌨️ <b>Команд:</b> {commands}\n"
+            f"👥 <b>Активных пользователей:</b> {users}\n"
+            f"🛡 <b>Модераций:</b> {moderation}\n\n"
+            f"🤖 <b>ИИ:</b> "
+            f"{'🟢 включён' if ai_enabled else '🔴 выключен'}"
+        )
+
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"},
+                    {"text": "⬅️ Назад в Group OS"}
+                ]
+            ],
+            "resize_keyboard": True
+        }
+
+        self.send_message(
+            chat_id,
+            text,
+            keyboard
+        )
+
+    # =========================================================
+    # DEVELOPER PANEL
+    # =========================================================
+
+    def show_developer(self, chat_id, user_id):
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "📊 Статистика"},
+                    {"text": "👥 Пользователи"}
+                ],
+                [
+                    {"text": "📜 Audit Log"},
+                    {"text": "🗄 База данных"}
+                ],
+                [
+                    {"text": "🖥 Система"},
+                    {"text": "🧪 Experimental Lab"}
+                ],
+                [
+                    {"text": "🖥️ Главное меню"}
+                ]
+            ],
+            "resize_keyboard": True
+        }
+
+        self.send_message(
+            chat_id,
+            "🛠 <b>DEVELOPER PANEL</b>\n\n"
+            "Инструменты разработчика T-OS.",
+            keyboard
+        )
+
+    def show_developer_stats(self, chat_id, user_id):
+        try:
+            info = self.developer.get_statistics()
+
+            self.send_message(
+                chat_id,
+                "📊 <b>СТАТИСТИКА T-OS</b>\n\n"
+                f"<pre>{self.html_escape(str(info))}</pre>"
+            )
+
+        except Exception:
+            self.send_message(
+                chat_id,
+                "⚠️ Не удалось получить статистику."
+            )
+
+    def show_developer_users(self, chat_id, user_id):
+        try:
+            users = self.developer.get_users()
+
+            text = "👥 <b>ПОЛЬЗОВАТЕЛИ</b>\n\n"
+
+            if not users:
+                text += "Пользователей нет."
+
+            else:
+                for user in users[:50]:
+                    if isinstance(user, dict):
+                        uid = user.get("user_id", "?")
+                        username = user.get(
+                            "username",
+                            "нет"
+                        )
+
+                        text += (
+                            f"👤 <code>{uid}</code> "
+                            f"@{username}\n"
+                        )
+                    else:
+                        text += f"👤 {user}\n"
+
+            self.send_message(
+                chat_id,
+                text
+            )
+
+        except Exception:
+            self.send_message(
+                chat_id,
+                "⚠️ Не удалось загрузить пользователей."
+            )
+
+    def show_audit_log(self, chat_id, user_id):
         try:
             logs = self.database.get_audit_logs(
                 limit=100
             )
 
-            group_events = 0
+            text = "📜 <b>AUDIT LOG</b>\n\n"
 
-            for log in logs:
+            if not logs:
+                text += "Журнал пуст."
 
-                if str(log.get("target_id")) == str(chat_id):
-                    group_events += 1
+            else:
+                for log in logs:
+                    if isinstance(log, dict):
+                        actor = log.get(
+                            "actor_id",
+                            "?"
+                        )
+                        action = log.get(
+                            "action",
+                            "unknown"
+                        )
+                        target = log.get(
+                            "target_id",
+                            ""
+                        )
+                        details = log.get(
+                            "details",
+                            ""
+                        )
+
+                        text += (
+                            f"👤 <code>{actor}</code>\n"
+                            f"⚙️ {self.html_escape(action)}\n"
+                        )
+
+                        if target:
+                            text += (
+                                f"🎯 <code>{target}</code>\n"
+                            )
+
+                        if details:
+                            text += (
+                                f"📝 {self.html_escape(details)}\n"
+                            )
+
+                        text += "\n"
+
+            self.send_message(
+                chat_id,
+                text
+            )
 
         except Exception:
-            group_events = 0
-
-        self.audit(
-            actor_id=user_id,
-            action="group_statistics",
-            target_id=chat_id,
-            details="Opened group statistics"
-        )
-
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
-            ],
-            [
-                {"text": "⬅️ Назад в Group OS"}
-            ],
-            [
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
-
-        self.send_message(
-            chat_id,
-            (
-                "📊 <b>СТАТИСТИКА ГРУППЫ</b>\n\n"
-                f"📌 <b>Название:</b> {title}\n"
-                f"🆔 <b>ID:</b> <code>{chat_id}</code>\n\n"
-                f"👥 <b>Участников:</b> {members}\n"
-                f"📜 <b>Событий T-OS:</b> {group_events}\n\n"
-                "🟢 <b>Статус Group OS:</b> ACTIVE\n\n"
-                "ℹ️ Более подробная статистика "
-                "сообщений и активности будет добавлена "
-                "после внедрения счётчиков Group OS."
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
-        )
-
-    # =====================================================
-    # HOME
-    # =====================================================
-
-    def show_home(self, chat_id):
-
-        keyboard = [
-            [
-                {"text": "📁 Файлы"},
-                {"text": "📝 Заметки"}
-            ],
-            [
-                {"text": "💻 Терминал"},
-                {"text": "🧮 Калькулятор"}
-            ],
-            [
-                {"text": "🎮 Игры"},
-                {"text": "⚙️ Настройки"}
-            ],
-            [
-                {"text": "👤 Профиль"},
-                {"text": "🏆 Достижения"}
-            ],
-            [
-                {"text": "📦 App Store"}
-            ]
-        ]
-
-        self.send_message(
-            chat_id,
-            (
-                "🖥️ <b>T-OS</b>\n\n"
-                "Добро пожаловать в виртуальную "
-                "операционную систему T-OS.\n\n"
-                "Выбери приложение:"
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
-        )
-
-    # =====================================================
-    # DEVELOPER PANEL
-    # =====================================================
-
-    def show_developer_panel(self, chat_id):
-
-        keyboard = [
-            [
-                {"text": "📊 Статистика"},
-                {"text": "👥 Пользователи"}
-            ],
-            [
-                {"text": "🎮 Игры"},
-                {"text": "💾 База данных"}
-            ],
-            [
-                {"text": "🧾 Audit Log"},
-                {"text": "🧪 Experimental Lab"}
-            ],
-            [
-                {"text": "⚙️ Система"}
-            ],
-            [
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
-
-        self.send_message(
-            chat_id,
-            (
-                "🛠️ <b>T-OS DEVELOPER PANEL</b>\n\n"
-                "Центр управления системой T-OS.\n\n"
-                "Выбери раздел:"
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
-        )
-
-    # =====================================================
-    # DEVELOPER STATISTICS
-    # =====================================================
-
-    def show_developer_stats(self, chat_id):
-
-        info = self.developer.get_system_info()
-
-        self.send_message(
-            chat_id,
-            (
-                "📊 <b>T-OS СТАТИСТИКА</b>\n\n"
-                f"👥 Пользователей: {info['users']}\n"
-                f"📁 Файлов: {info['files']}\n"
-                f"🏆 Достижений: {info['achievements']}"
+            self.send_message(
+                chat_id,
+                "⚠️ Не удалось загрузить Audit Log."
             )
-        )
 
-    # =====================================================
-    # DEVELOPER USERS
-    # =====================================================
-
-    def show_developer_users(self, chat_id):
-
-        users = self.developer.get_users(
-            limit=20
-        )
-
-        if not users:
+    def show_database_info(self, chat_id, user_id):
+        try:
+            info = self.developer.get_database_info()
 
             self.send_message(
                 chat_id,
-                "👥 Пользователей пока нет."
+                "🗄 <b>DATABASE</b>\n\n"
+                f"<pre>{self.html_escape(str(info))}</pre>"
             )
 
-            return
-
-        lines = [
-            "👥 <b>T-OS ПОЛЬЗОВАТЕЛИ</b>",
-            ""
-        ]
-
-        for user in users:
-
-            username = user["username"]
-
-            if username:
-                name = f"@{username}"
-            else:
-                name = "без username"
-
-            lines.append(
-                f"• {name} | "
-                f"ID: {user['user_id']} | "
-                f"Lv.{user['level']}"
+        except Exception:
+            self.send_message(
+                chat_id,
+                "⚠️ Не удалось получить информацию о БД."
             )
 
-        self.send_message(
-            chat_id,
-            "\n".join(lines)
-        )
-
-    # =====================================================
-    # AUDIT LOG
-    # =====================================================
-
-    def show_audit_log(self, chat_id):
-
-        logs = self.database.get_audit_logs(
-            limit=20
-        )
-
-        if not logs:
+    def show_system_info(self, chat_id, user_id):
+        try:
+            info = self.developer.get_system_info()
 
             self.send_message(
                 chat_id,
-                (
-                    "🧾 <b>AUDIT LOG</b>\n\n"
-                    "Журнал пока пуст."
-                )
+                "🖥 <b>SYSTEM</b>\n\n"
+                f"<pre>{self.html_escape(str(info))}</pre>"
             )
 
-            return
-
-        lines = [
-            "🧾 <b>T-OS AUDIT LOG</b>",
-            "",
-            "Последние события:",
-            ""
-        ]
-
-        for log in logs:
-
-            timestamp = log["created_at"]
-            actor = log["actor_id"]
-            action = log["action"]
-            target = log["target_id"]
-            details = log["details"]
-
-            line = (
-                f"#{log['id']} | {timestamp}\n"
-                f"👤 Actor: {actor}\n"
-                f"⚙️ Action: {action}"
-            )
-
-            if target is not None:
-                line += f"\n🎯 Target: {target}"
-
-            if details:
-                line += f"\n📝 {details}"
-
-            lines.append(line)
-            lines.append("")
-
-        text = "\n".join(lines)
-
-        if len(text) > 3900:
-            text = text[:3900] + "\n\n..."
-
-        self.send_message(
-            chat_id,
-            text
-        )
-
-    # =====================================================
-    # DATABASE
-    # =====================================================
-
-    def show_database_info(self, chat_id):
-
-        info = self.developer.get_system_info()
-
-        self.send_message(
-            chat_id,
-            (
-                "💾 <b>DATABASE</b>\n\n"
-                "Engine: SQLite\n"
-                f"Users: {info['users']}\n"
-                f"Files: {info['files']}\n"
-                f"Achievements: {info['achievements']}\n\n"
-                "🟢 Database status: ONLINE"
-            )
-        )
-
-    # =====================================================
-    # SYSTEM
-    # =====================================================
-
-    def show_system_info(self, chat_id):
-
-        info = self.developer.get_system_info()
-
-        self.send_message(
-            chat_id,
-            (
-                "⚙️ <b>T-OS SYSTEM</b>\n\n"
-                "Status: 🟢 ONLINE\n"
-                "Core: T-OS Core\n"
-                "Database: SQLite\n"
-                "Telegram: Connected\n\n"
-                f"Users: {info['users']}\n"
-                f"Files: {info['files']}\n"
-                f"Achievements: {info['achievements']}"
-            )
-        )
-
-    # =====================================================
-    # FILE SYSTEM
-    # =====================================================
-
-    def initialize_filesystem(self, user_id):
-
-        directories = [
-            "/home",
-            "/home/user",
-            "/home/user/Desktop",
-            "/home/user/Documents",
-            "/home/user/Downloads",
-            "/home/user/Pictures",
-            "/home/user/Projects",
-            "/home/user/Trash"
-        ]
-
-        for directory in directories:
-
-            self.database.create_file(
-                user_id,
-                directory,
-                file_type="directory"
-            )
-
-    def show_files(self, chat_id, user_id):
-
-        self.initialize_filesystem(user_id)
-
-        keyboard = [
-            [
-                {"text": "➕ Новый файл"},
-                {"text": "📂 Открыть"}
-            ],
-            [
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
-
-        self.send_message(
-            chat_id,
-            (
-                "📁 <b>FILES</b>\n\n"
-                "/home/user/\n\n"
-                "Выбери действие:"
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
-        )
-
-    def ask_filename(self, chat_id, user_id):
-
-        self.file_states[user_id] = {
-            "type": "filename"
-        }
-
-        self.send_message(
-            chat_id,
-            (
-                "📄 <b>Создание файла</b>\n\n"
-                "Отправь имя файла.\n\n"
-                "Например:\n"
-                "hello.txt"
-            )
-        )
-
-    def create_new_file(
-        self,
-        chat_id,
-        user_id,
-        filename
-    ):
-
-        self.file_states.pop(
-            user_id,
-            None
-        )
-
-        path = "/home/user/" + filename
-
-        if self.database.path_exists(
-            user_id,
-            path
-        ):
-
+        except Exception:
             self.send_message(
                 chat_id,
-                "❌ Такой файл уже существует."
+                "⚠️ Не удалось получить информацию о системе."
             )
 
-            return
-
-        self.database.create_file(
-            user_id,
-            path,
-            file_type="file",
-            content=""
-        )
-
+    def show_experimental_lab(self, chat_id, user_id):
         self.send_message(
             chat_id,
-            (
-                "✅ Файл создан:\n\n"
-                f"{path}"
-            )
+            "🧪 <b>EXPERIMENTAL LAB</b>\n\n"
+            "Экспериментальные функции T-OS."
         )
 
-    def show_directory(
-        self,
-        chat_id,
-        user_id,
-        directory
-    ):
-
-        files = self.database.get_files(
-            user_id,
-            directory
-        )
-
-        if not files:
-
-            self.send_message(
-                chat_id,
-                (
-                    f"📂 {directory}\n\n"
-                    "Папка пуста."
-                )
-            )
-
-            return
-
-        lines = [
-            f"📂 {directory}",
-            ""
-        ]
-
-        for item in files:
-
-            name = item["path"].split("/")[-1]
-
-            if item["file_type"] == "directory":
-                lines.append(f"📁 {name}")
-            else:
-                lines.append(f"📄 {name}")
-
-        self.send_message(
-            chat_id,
-            "\n".join(lines)
-        )
-
-    def open_file(
-        self,
-        chat_id,
-        user_id,
-        path
-    ):
-
-        file = self.database.get_file(
-            user_id,
-            path
-        )
-
-        if not file:
-
-            self.send_message(
-                chat_id,
-                "❌ Файл не найден."
-            )
-
-            return
-
-        if file["file_type"] == "directory":
-
-            self.show_directory(
-                chat_id,
-                user_id,
-                path
-            )
-
-            return
-
-        self.send_message(
-            chat_id,
-            (
-                f"📄 {path}\n\n"
-                f"{file['content'] or '(пусто)'}"
-            )
-        )
-
-    def start_editing(
-        self,
-        chat_id,
-        user_id,
-        path
-    ):
-
-        self.file_states[user_id] = {
-            "type": "editing",
-            "path": path
-        }
-
-        self.send_message(
-            chat_id,
-            (
-                f"✏️ Редактирование:\n"
-                f"{path}\n\n"
-                "Отправь новое содержимое файла."
-            )
-        )
-
-    def save_file_content(
-        self,
-        chat_id,
-        user_id,
-        content
-    ):
-
-        state = self.file_states.pop(
-            user_id,
-            None
-        )
-
-        if not state:
-            return
-
-        path = state["path"]
-
-        self.database.update_file(
-            user_id,
-            path,
-            content
-        )
-
-        self.send_message(
-            chat_id,
-            (
-                "✅ Файл сохранён.\n\n"
-                f"{path}"
-            )
-        )
-
-    # =====================================================
-    # TERMINAL
-    # =====================================================
-
-    def get_terminal_dir(self, user_id):
-
-        return self.terminal_dirs.get(
-            user_id,
-            "/home/user"
-        )
-
-    def set_terminal_dir(
-        self,
-        user_id,
-        path
-    ):
-
-        self.terminal_dirs[user_id] = path
-
-    def normalize_path(
-        self,
-        user_id,
-        path
-    ):
-
-        current = self.get_terminal_dir(user_id)
-
-        if path.startswith("/"):
-            result = path
-        else:
-            result = current.rstrip("/") + "/" + path
-
-        parts = []
-
-        for part in result.split("/"):
-
-            if not part or part == ".":
-                continue
-
-            if part == "..":
-
-                if parts:
-                    parts.pop()
-
-                continue
-
-            parts.append(part)
-
-        return "/" + "/".join(parts)
-
-    def terminal_output(
-        self,
-        chat_id,
-        text
-    ):
-
-        self.send_message(
-            chat_id,
-            f"```text\n{text}\n```"
-        )
-
-    def add_history(
-        self,
-        user_id,
-        command
-    ):
-
-        history = self.command_history.setdefault(
-            user_id,
-            []
-        )
-
-        history.append(command)
-
-        if len(history) > 50:
-            history.pop(0)
-
-    def handle_terminal(
-        self,
-        chat_id,
-        user_id,
-        text
-    ):
-
-        command_line = text[1:].strip()
-
-        self.add_history(
-            user_id,
-            command_line
-        )
-
-        self.database.increment_commands(user_id)
-        self.database.add_xp(user_id, 1)
-
-        self.database.unlock_achievement(
-            user_id,
-            "Terminal User"
-        )
-
-        user = self.database.get_user(user_id)
-
-        if user and user["commands"] >= 100:
-
-            self.database.unlock_achievement(
-                user_id,
-                "100 Commands"
-            )
-
-        if not command_line:
-
-            self.terminal_output(
-                chat_id,
-                "T-OS Terminal"
-            )
-
-            return
-
-        parts = command_line.split()
-
-        command = parts[0].lower()
-        args = parts[1:]
-
-        if command == "help":
-
-            self.terminal_output(
-                chat_id,
-                (
-                    "T-OS Terminal\n\n"
-                    "$ help\n"
-                    "$ pwd\n"
-                    "$ whoami\n"
-                    "$ date\n"
-                    "$ clear\n"
-                    "$ ls\n"
-                    "$ cd <path>\n"
-                    "$ touch <file>\n"
-                    "$ mkdir <dir>\n"
-                    "$ cat <file>\n"
-                    "$ write <file> <text>\n"
-                    "$ echo <text>\n"
-                    "$ rm <file>\n"
-                    "$ cp <src> <dst>\n"
-                    "$ mv <src> <dst>\n"
-                    "$ tree\n"
-                    "$ history\n"
-                    "$ neofetch"
-                )
-            )
-            return
-
-        if command == "pwd":
-
-            self.terminal_output(
-                chat_id,
-                self.get_terminal_dir(user_id)
-            )
-            return
-
-        if command == "whoami":
-
-            self.terminal_output(
-                chat_id,
-                str(user_id)
-            )
-            return
-
-        if command == "date":
-
-            self.terminal_output(
-                chat_id,
-                datetime.now().strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-            )
-            return
-
-        if command == "clear":
-
-            self.send_message(
-                chat_id,
-                "🧹 Терминал очищен."
-            )
-            return
-
-        if command == "ls":
-
-            directory = self.get_terminal_dir(
-                user_id
-            )
-
-            files = self.database.get_files(
-                user_id,
-                directory
-            )
-
-            if not files:
-
-                self.terminal_output(
-                    chat_id,
-                    "(пусто)"
-                )
-                return
-
-            lines = []
-
-            for item in files:
-
-                name = item["path"].split("/")[-1]
-
-                if item["file_type"] == "directory":
-                    lines.append(name + "/")
-                else:
-                    lines.append(name)
-
-            self.terminal_output(
-                chat_id,
-                "\n".join(lines)
-            )
-            return
-
-        if command == "cd":
-
-            if not args:
-                target = "/home/user"
-            else:
-                target = self.normalize_path(
-                    user_id,
-                    args[0]
-                )
-
-            file = self.database.get_file(
-                user_id,
-                target
-            )
-
-            if not file:
-
-                self.terminal_output(
-                    chat_id,
-                    "cd: каталог не найден"
-                )
-                return
-
-            if file["file_type"] != "directory":
-
-                self.terminal_output(
-                    chat_id,
-                    "cd: это не каталог"
-                )
-                return
-
-            self.set_terminal_dir(
-                user_id,
-                target
-            )
-            return
-
-        if command == "touch":
-
-            if not args:
-
-                self.terminal_output(
-                    chat_id,
-                    "touch: не указано имя файла"
-                )
-                return
-
-            path = self.normalize_path(
-                user_id,
-                args[0]
-            )
-
-            self.database.create_file(
-                user_id,
-                path
-            )
-
-            self.terminal_output(
-                chat_id,
-                "создан: " + path
-            )
-            return
-
-        if command == "mkdir":
-
-            if not args:
-
-                self.terminal_output(
-                    chat_id,
-                    "mkdir: не указано имя каталога"
-                )
-                return
-
-            path = self.normalize_path(
-                user_id,
-                args[0]
-            )
-
-            self.database.create_file(
-                user_id,
-                path,
-                file_type="directory"
-            )
-
-            self.terminal_output(
-                chat_id,
-                "создан каталог: " + path
-            )
-            return
-
-        if command == "cat":
-
-            if not args:
-
-                self.terminal_output(
-                    chat_id,
-                    "cat: не указан файл"
-                )
-                return
-
-            path = self.normalize_path(
-                user_id,
-                args[0]
-            )
-
-            file = self.database.get_file(
-                user_id,
-                path
-            )
-
-            if not file:
-
-                self.terminal_output(
-                    chat_id,
-                    "cat: файл не найден"
-                )
-                return
-
-            self.terminal_output(
-                chat_id,
-                file["content"] or "(пусто)"
-            )
-            return
-
-        if command == "write":
-
-            if len(args) < 2:
-
-                self.terminal_output(
-                    chat_id,
-                    "write: $ write <файл> <текст>"
-                )
-                return
-
-            path = self.normalize_path(
-                user_id,
-                args[0]
-            )
-
-            content = " ".join(args[1:])
-
-            if not self.database.path_exists(
-                user_id,
-                path
-            ):
-                self.database.create_file(
-                    user_id,
-                    path
-                )
-
-            self.database.update_file(
-                user_id,
-                path,
-                content
-            )
-
-            self.terminal_output(
-                chat_id,
-                "сохранён: " + path
-            )
-            return
-
-        if command == "echo":
-
-            self.terminal_output(
-                chat_id,
-                " ".join(args)
-            )
-            return
-
-        if command == "rm":
-
-            if not args:
-
-                self.terminal_output(
-                    chat_id,
-                    "rm: не указан файл"
-                )
-                return
-
-            path = self.normalize_path(
-                user_id,
-                args[0]
-            )
-
-            if not self.database.path_exists(
-                user_id,
-                path
-            ):
-
-                self.terminal_output(
-                    chat_id,
-                    "rm: объект не найден"
-                )
-                return
-
-            self.database.delete_file(
-                user_id,
-                path
-            )
-
-            self.terminal_output(
-                chat_id,
-                "удалён: " + path
-            )
-            return
-
-        if command == "cp":
-
-            if len(args) < 2:
-
-                self.terminal_output(
-                    chat_id,
-                    "cp: $ cp <источник> <назначение>"
-                )
-                return
-
-            source = self.normalize_path(
-                user_id,
-                args[0]
-            )
-
-            destination = self.normalize_path(
-                user_id,
-                args[1]
-            )
-
-            file = self.database.get_file(
-                user_id,
-                source
-            )
-
-            if not file:
-
-                self.terminal_output(
-                    chat_id,
-                    "cp: источник не найден"
-                )
-                return
-
-            self.database.create_file(
-                user_id,
-                destination,
-                file_type=file["file_type"],
-                content=file["content"]
-            )
-
-            self.terminal_output(
-                chat_id,
-                "скопировано"
-            )
-            return
-
-        if command == "mv":
-
-            if len(args) < 2:
-
-                self.terminal_output(
-                    chat_id,
-                    "mv: $ mv <источник> <назначение>"
-                )
-                return
-
-            source = self.normalize_path(
-                user_id,
-                args[0]
-            )
-
-            destination = self.normalize_path(
-                user_id,
-                args[1]
-            )
-
-            file = self.database.get_file(
-                user_id,
-                source
-            )
-
-            if not file:
-
-                self.terminal_output(
-                    chat_id,
-                    "mv: источник не найден"
-                )
-                return
-
-            self.database.create_file(
-                user_id,
-                destination,
-                file_type=file["file_type"],
-                content=file["content"]
-            )
-
-            self.database.delete_file(
-                user_id,
-                source
-            )
-
-            self.terminal_output(
-                chat_id,
-                "перемещено"
-            )
-            return
-
-        if command == "tree":
-
-            directory = self.get_terminal_dir(
-                user_id
-            )
-
-            output = self.build_tree(
-                user_id,
-                directory
-            )
-
-            self.terminal_output(
-                chat_id,
-                output or "(пусто)"
-            )
-            return
-
-        if command == "history":
-
-            history = self.command_history.get(
-                user_id,
-                []
-            )
-
-            if not history:
-
-                self.terminal_output(
-                    chat_id,
-                    "(пусто)"
-                )
-                return
-
-            lines = []
-
-            for index, item in enumerate(
-                history,
-                start=1
-            ):
-                lines.append(
-                    f"{index}  {item}"
-                )
-
-            self.terminal_output(
-                chat_id,
-                "\n".join(lines)
-            )
-            return
-
-        if command == "neofetch":
-
-            user = self.database.get_user(
-                user_id
-            )
-
-            self.terminal_output(
-                chat_id,
-                (
-                    "████████████████\n"
-                    "T-OS\n\n"
-                    f"User: {user['username'] or 'unknown'}\n"
-                    f"Level: {user['level']}\n"
-                    f"XP: {user['xp']}\n"
-                    f"Coins: {user['coins']}\n"
-                    f"Commands: {user['commands']}\n"
-                    "Database: SQLite\n"
-                    "Core: T-OS"
-                )
-            )
-            return
-
-        self.terminal_output(
-            chat_id,
-            f"command not found: {command}"
-        )
-
-    def build_tree(
-        self,
-        user_id,
-        directory
-    ):
-
-        files = self.database.get_files(
-            user_id,
-            directory
-        )
-
-        if not files:
-            return ""
-
-        lines = []
-
-        for item in files:
-
-            name = item["path"].split("/")[-1]
-
-            if item["file_type"] == "directory":
-                lines.append(
-                    "📁 " + name + "/"
-                )
-            else:
-                lines.append(
-                    "📄 " + name
-                )
-
-        return "\n".join(lines)
-
-    def show_terminal(
-        self,
-        chat_id,
-        user_id
-    ):
-
-        self.initialize_filesystem(user_id)
-
-        self.set_terminal_dir(
-            user_id,
-            "/home/user"
-        )
-
-        self.send_message(
-            chat_id,
-            (
-                "💻 <b>T-OS ТЕРМИНАЛ</b>\n\n"
-                "Терминал готов.\n\n"
-                "Примеры:\n"
-                "$ help\n"
-                "$ ls\n"
-                "$ pwd\n"
-                "$ neofetch\n\n"
-                "Все файлы являются виртуальными."
-            )
-        )
-
-    # =====================================================
-    # PROFILE
-    # =====================================================
-
-    def show_profile(
-        self,
-        chat_id,
-        user_id
-    ):
-
-        user = self.database.get_user(user_id)
-
-        if not user:
-            return
-
-        username = user["username"]
-
-        if username:
-            username = "@" + username
-        else:
-            username = "без username"
-
-        self.send_message(
-            chat_id,
-            (
-                "👤 <b>T-OS ПРОФИЛЬ</b>\n\n"
-                f"Username: {username}\n"
-                f"ID: {user['user_id']}\n\n"
-                f"⭐ Уровень: {user['level']}\n"
-                f"XP: {user['xp']}\n"
-                f"🪙 T-Coins: {user['coins']}\n\n"
-                f"⌨️ Команды: {user['commands']}\n"
-                f"🎮 Игр сыграно: {user['games_played']}\n"
-                f"🏆 Побед: {user['games_won']}"
-            )
-        )
-
-    # =====================================================
-    # ACHIEVEMENTS
-    # =====================================================
-
-    def show_achievements(
-        self,
-        chat_id,
-        user_id
-    ):
-
-        achievements = self.database.get_achievements(
-            user_id
-        )
-
-        if not achievements:
-
-            self.send_message(
-                chat_id,
-                (
-                    "🏆 <b>ДОСТИЖЕНИЯ</b>\n\n"
-                    "Пока достижений нет."
-                )
-            )
-
-            return
-
-        lines = [
-            "🏆 <b>ДОСТИЖЕНИЯ</b>",
-            ""
-        ]
-
-        for achievement in achievements:
-
-            lines.append(
-                "🏅 " + achievement["achievement"]
-            )
-
-        self.send_message(
-            chat_id,
-            "\n".join(lines)
-        )
-
-    # =====================================================
-    # NOTES
-    # =====================================================
-
-    def show_notes(self, chat_id):
-
-        self.send_message(
-            chat_id,
-            (
-                "📝 <b>ЗАМЕТКИ</b>\n\n"
-                "Система заметок пока находится "
-                "в разработке."
-            )
-        )
-
-    # =====================================================
-    # CALCULATOR
-    # =====================================================
-
-    def show_calculator(self, chat_id):
-
-        self.send_message(
-            chat_id,
-            (
-                "🧮 <b>КАЛЬКУЛЯТОР</b>\n\n"
-                "Калькулятор будет подключён "
-                "на следующем этапе."
-            )
-        )
-
-    # =====================================================
-    # SETTINGS
-    # =====================================================
-
-    def show_settings(self, chat_id):
-
-        self.send_message(
-            chat_id,
-            (
-                "⚙️ <b>НАСТРОЙКИ</b>\n\n"
-                "Настройки T-OS находятся "
-                "в разработке."
-            )
-        )
-
-    # =====================================================
-    # APP STORE
-    # =====================================================
-
-    def show_app_store(self, chat_id):
-
-        self.send_message(
-            chat_id,
-            (
-                "📦 <b>T-OS APP STORE</b>\n\n"
-                "Магазин приложений пока пуст.\n\n"
-                "SDK и система приложений будут "
-                "добавлены позже."
-            )
-        )
-
-    # =====================================================
+    # =========================================================
     # GAMES
-    # =====================================================
+    # =========================================================
 
-    def show_games(
-        self,
-        chat_id,
-        user_id
-    ):
-
-        keyboard = [
-            [
-                {"text": "🎲 Dice"},
-                {"text": "🔢 Guess Number"}
+    def show_games(self, chat_id, user_id):
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🎲 Кубик"},
+                    {"text": "🔢 Угадай число"}
+                ],
+                [
+                    {"text": "🧠 Викторина"},
+                    {"text": "🧩 Загадка"}
+                ],
+                [
+                    {"text": "⚡ Реакция"}
+                ],
+                [
+                    {"text": "🖥️ Главное меню"}
+                ]
             ],
-            [
-                {"text": "🧠 Quiz"},
-                {"text": "🧩 Riddles"}
-            ],
-            [
-                {"text": "⚡ Reaction"}
-            ],
-            [
-                {"text": "❌ Выйти из игры"}
-            ],
-            [
-                {"text": "🖥️ Главное меню"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
-            (
-                "🎮 <b>T-OS ИГРЫ</b>\n\n"
-                "Выбери игру:"
-            ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            "🎮 <b>T-OS GAMES</b>\n\n"
+            "Выбери игру:",
+            keyboard
         )
 
-    def start_dice(
-        self,
-        chat_id,
-        user_id
-    ):
-
-        result, won = self.games.start_dice(
-            user_id
-        )
-
-        if won:
-
-            message = (
-                "🎲 DICE\n\n"
-                f"Результат: {result}\n\n"
-                "🎉 Победа!\n"
-                "⭐ +10 XP\n"
-                "🪙 +10 T-Coins"
+    def start_dice(self, chat_id, user_id):
+        try:
+            result = self.games.start_dice(
+                chat_id,
+                user_id
             )
 
-        else:
-
-            message = (
-                "🎲 DICE\n\n"
-                f"Результат: {result}\n\n"
-                "😔 Не повезло.\n"
-                "⭐ +10 XP\n"
-                "🪙 +2 T-Coins"
+            self.send_message(
+                chat_id,
+                str(result)
             )
 
-        self.send_message(
-            chat_id,
-            message
-        )
+        except Exception:
+            self.send_message(
+                chat_id,
+                "🎲 Не удалось запустить игру."
+            )
 
-    def start_guess(
-        self,
-        chat_id,
-        user_id
-    ):
+    def start_guess(self, chat_id, user_id):
+        try:
+            result = self.games.start_guess(
+                chat_id,
+                user_id
+            )
 
-        self.send_message(
-            chat_id,
-            self.games.start_guess(user_id)
-        )
+            self.send_message(
+                chat_id,
+                str(result)
+            )
 
-    def start_quiz(
-        self,
-        chat_id,
-        user_id
-    ):
+        except Exception:
+            self.send_message(
+                chat_id,
+                "🔢 Не удалось запустить игру."
+            )
 
-        self.send_message(
-            chat_id,
-            self.games.start_quiz(user_id)
-        )
+    def start_quiz(self, chat_id, user_id):
+        try:
+            result = self.games.start_quiz(
+                chat_id,
+                user_id
+            )
 
-    def start_riddle(
-        self,
-        chat_id,
-        user_id
-    ):
+            self.send_message(
+                chat_id,
+                str(result)
+            )
 
-        self.send_message(
-            chat_id,
-            self.games.start_riddle(user_id)
-        )
+        except Exception:
+            self.send_message(
+                chat_id,
+                "🧠 Не удалось запустить викторину."
+            )
 
-    def start_reaction(
-        self,
-        chat_id,
-        user_id
-    ):
+    def start_riddle(self, chat_id, user_id):
+        try:
+            result = self.games.start_riddle(
+                chat_id,
+                user_id
+            )
 
-        self.send_message(
-            chat_id,
-            self.games.start_reaction(user_id)
-        )
+            self.send_message(
+                chat_id,
+                str(result)
+            )
+
+        except Exception:
+            self.send_message(
+                chat_id,
+                "🧩 Не удалось запустить загадку."
+            )
+
+    def start_reaction(self, chat_id, user_id):
+        try:
+            result = self.games.start_reaction(
+                chat_id,
+                user_id
+            )
+
+            self.send_message(
+                chat_id,
+                str(result)
+            )
+
+        except Exception:
+            self.send_message(
+                chat_id,
+                "⚡ Не удалось запустить игру."
+            )
