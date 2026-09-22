@@ -1050,29 +1050,22 @@ class TelegramHandler:
 
             return
 
+        logs = []
+
+        try:
+            logs = self.group_os.get_audit_log(
+                chat_id,
+                limit=20
+            )
+        except Exception:
+            logs = []
+
         self.audit(
             actor_id=user_id,
             action="group_audit_log",
             target_id=chat_id,
             details="Opened group audit log"
         )
-
-        logs = []
-
-        try:
-            all_logs = self.database.get_audit_logs(
-                limit=100
-            )
-
-            for log in all_logs:
-
-                target = log.get("target_id")
-
-                if str(target) == str(chat_id):
-                    logs.append(log)
-
-        except Exception:
-            logs = []
 
         lines = [
             "📜 <b>ЖУРНАЛ ГРУППЫ</b>",
@@ -1086,18 +1079,18 @@ class TelegramHandler:
             lines.extend([
                 "📭 Записей пока нет.",
                 "",
-                "Новые действия T-OS будут "
+                "Новые действия Group OS будут "
                 "появляться здесь."
             ])
 
         else:
 
             lines.append(
-                f"📌 Последние событий: {len(logs)}"
+                f"📌 Последних событий: <b>{len(logs)}</b>"
             )
             lines.append("")
 
-            for log in logs[:20]:
+            for log in logs:
 
                 timestamp = log.get(
                     "created_at",
@@ -1105,7 +1098,7 @@ class TelegramHandler:
                 )
 
                 actor = log.get(
-                    "actor_id",
+                    "user_id",
                     "?"
                 )
 
@@ -1114,18 +1107,28 @@ class TelegramHandler:
                     "?"
                 )
 
+                target = log.get(
+                    "target_id"
+                )
+
                 details = log.get(
                     "details",
                     ""
                 )
 
                 lines.append(
-                    f"🕐 {timestamp}"
+                    f"🕐 <code>{timestamp}</code>"
                 )
 
                 lines.append(
-                    f"👤 {actor} → {action}"
+                    f"👤 <code>{actor}</code> → "
+                    f"<b>{action}</b>"
                 )
+
+                if target:
+                    lines.append(
+                        f"🎯 Цель: <code>{target}</code>"
+                    )
 
                 if details:
                     lines.append(
@@ -1278,6 +1281,46 @@ class TelegramHandler:
 
             return
 
+        try:
+            settings = self.group_os.get_settings(
+                chat_id
+            )
+        except Exception:
+            settings = {}
+
+        ai_enabled = bool(
+            settings.get(
+                "ai_enabled",
+                0
+            )
+        )
+
+        ai_mode = settings.get(
+            "ai_mode",
+            "normal"
+        )
+
+        moderation_enabled = bool(
+            settings.get(
+                "moderation_enabled",
+                0
+            )
+        )
+
+        welcome_enabled = bool(
+            settings.get(
+                "welcome_enabled",
+                0
+            )
+        )
+
+        log_enabled = bool(
+            settings.get(
+                "log_enabled",
+                1
+            )
+        )
+
         self.audit(
             actor_id=user_id,
             action="group_ai_settings",
@@ -1285,33 +1328,67 @@ class TelegramHandler:
             details="Opened group AI settings"
         )
 
+        ai_status = (
+            "🟢 Включён"
+            if ai_enabled
+            else "🔴 Выключен"
+        )
+
+        moderation_status = (
+            "🟢 Включена"
+            if moderation_enabled
+            else "🔴 Выключена"
+        )
+
+        welcome_status = (
+            "🟢 Включено"
+            if welcome_enabled
+            else "🔴 Выключено"
+        )
+
+        log_status = (
+            "🟢 Включён"
+            if log_enabled
+            else "🔴 Выключен"
+        )
+
+        text = (
+            "🤖 <b>НАСТРОЙКИ ИИ</b>\n\n"
+
+            f"🧠 <b>T-OS AI:</b> {ai_status}\n"
+            f"⚙️ <b>Режим:</b> <code>{ai_mode}</code>\n\n"
+
+            "🛡 <b>Group OS</b>\n"
+            f"├ Модерация: {moderation_status}\n"
+            f"├ Приветствия: {welcome_status}\n"
+            f"└ Журнал: {log_status}\n\n"
+
+            "ℹ️ Настройки загружаются из базы данных "
+            "Group OS."
+        )
+
         keyboard = [
+            [
+                {
+                    "text": (
+                        "🔴 Выключить AI"
+                        if ai_enabled
+                        else "🟢 Включить AI"
+                    )
+                }
+            ],
             [
                 {"text": "🔄 Обновить"}
             ],
             [
-                {"text": "⬅️ Назад в Group OS"}
-            ],
-            [
+                {"text": "⬅️ Назад в Group OS"},
                 {"text": "🖥️ Главное меню"}
             ]
         ]
 
         self.send_message(
             chat_id,
-            (
-                "🤖 <b>НАСТРОЙКИ ИИ</b>\n\n"
-                "🟢 <b>T-OS AI:</b> подключён\n\n"
-                "⚙️ <b>Текущие настройки</b>\n"
-                "├ 💬 Ответы: доступны\n"
-                "├ 🧠 Контекст группы: не настроен\n"
-                "├ 🔒 Ограничения: стандартные\n"
-                "└ 👥 Режим: общий\n\n"
-                "ℹ️ Настоящее управление ИИ "
-                "для группы добавим отдельным этапом.\n\n"
-                "Здесь позже можно будет настроить "
-                "режим работы T-OS именно для этой группы."
-            ),
+            text,
             {
                 "keyboard": keyboard,
                 "resize_keyboard": True
@@ -1366,19 +1443,41 @@ class TelegramHandler:
         )
 
         try:
-            logs = self.database.get_audit_logs(
+            statistics = self.group_os.get_statistics(
+                chat_id
+            )
+        except Exception:
+            statistics = {}
+
+        try:
+            audit_logs = self.group_os.get_audit_log(
+                chat_id,
                 limit=100
             )
-
-            group_events = 0
-
-            for log in logs:
-
-                if str(log.get("target_id")) == str(chat_id):
-                    group_events += 1
-
         except Exception:
-            group_events = 0
+            audit_logs = []
+
+        group_events = len(audit_logs)
+
+        messages = statistics.get(
+            "messages",
+            0
+        )
+
+        commands = statistics.get(
+            "commands",
+            0
+        )
+
+        moderation_actions = statistics.get(
+            "moderation_actions",
+            0
+        )
+
+        ai_requests = statistics.get(
+            "ai_requests",
+            0
+        )
 
         self.audit(
             actor_id=user_id,
@@ -1405,12 +1504,17 @@ class TelegramHandler:
                 "📊 <b>СТАТИСТИКА ГРУППЫ</b>\n\n"
                 f"📌 <b>Название:</b> {title}\n"
                 f"🆔 <b>ID:</b> <code>{chat_id}</code>\n\n"
-                f"👥 <b>Участников:</b> {members}\n"
-                f"📜 <b>Событий T-OS:</b> {group_events}\n\n"
-                "🟢 <b>Статус Group OS:</b> ACTIVE\n\n"
-                "ℹ️ Более подробная статистика "
-                "сообщений и активности будет добавлена "
-                "после внедрения счётчиков Group OS."
+
+                f"👥 <b>Участников:</b> {members}\n\n"
+
+                "📈 <b>АКТИВНОСТЬ T-OS</b>\n"
+                f"├ 💬 Сообщений: <b>{messages}</b>\n"
+                f"├ ⚡ Команд: <b>{commands}</b>\n"
+                f"├ 🤖 AI-запросов: <b>{ai_requests}</b>\n"
+                f"├ 🛡 Модераций: <b>{moderation_actions}</b>\n"
+                f"└ 📜 Событий: <b>{group_events}</b>\n\n"
+
+                "🟢 <b>Статус Group OS:</b> ACTIVE"
             ),
             {
                 "keyboard": keyboard,
