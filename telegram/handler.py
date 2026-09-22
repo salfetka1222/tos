@@ -1,6 +1,3 @@
-from telegram.bot import TelegramBot
-
-from games import GamesSystem
 from core.dev import DeveloperSystem
 from core.group_os import GroupOS
 
@@ -18,8 +15,6 @@ class TelegramHandler:
         # =====================================================
         # SYSTEMS
         # =====================================================
-
-        self.games = GamesSystem(database)
 
         self.developer = DeveloperSystem(
             database
@@ -50,16 +45,6 @@ class TelegramHandler:
             bot,
             database
         )
-
-        # =====================================================
-        # OLD STATES
-        # =====================================================
-
-        self.file_states = {}
-
-        self.terminal_dirs = {}
-
-        self.command_history = {}
 
     # =========================================================
     # TELEGRAM
@@ -100,15 +85,22 @@ class TelegramHandler:
         keyboard = {
             "keyboard": [
                 [
-                    {"text": "📁 Файловая система"},
-                    {"text": "👥 Group OS"}
+                    {
+                        "text": "📁 Файловая система"
+                    },
+                    {
+                        "text": "👥 Group OS"
+                    }
                 ],
                 [
-                    {"text": "🎮 Игры"},
-                    {"text": "🛠 Dev Panel"}
+                    {
+                        "text": "🛠 Dev Panel"
+                    }
                 ],
                 [
-                    {"text": "ℹ️ Помощь"}
+                    {
+                        "text": "ℹ️ Помощь"
+                    }
                 ]
             ],
             "resize_keyboard": True
@@ -137,7 +129,9 @@ class TelegramHandler:
         keyboard = {
             "keyboard": [
                 [
-                    {"text": "🏠 Главная"}
+                    {
+                        "text": "🏠 Главная"
+                    }
                 ]
             ],
             "resize_keyboard": True
@@ -147,17 +141,20 @@ class TelegramHandler:
             chat_id,
             (
                 "ℹ️ <b>ПОМОЩЬ T-OS</b>\n\n"
-                "📁 Файловая система — работа с файлами "
-                "и папками.\n\n"
-                "👥 Group OS — управление группой.\n\n"
-                "🎮 Игры — игровые функции T-OS.\n\n"
-                "🛠 Dev Panel — панель разработчика."
+                "📁 <b>Файловая система</b>\n"
+                "Работа с файлами и папками.\n\n"
+                "👥 <b>Group OS</b>\n"
+                "Инструменты управления группой.\n\n"
+                "🛠 <b>Dev Panel</b>\n"
+                "Панель разработчика.\n\n"
+                "Используйте /start, чтобы "
+                "вернуться в главное меню."
             ),
             keyboard
         )
 
     # =========================================================
-    # UPDATE HANDLER
+    # UPDATE
     # =========================================================
 
     def handle_update(
@@ -192,18 +189,21 @@ class TelegramHandler:
             "id"
         )
 
+        if not chat_id or not user_id:
+            return
+
         text = message.get(
             "text",
             ""
         )
 
-        if not chat_id or not user_id:
-            return
+        if not isinstance(text, str):
+            text = ""
 
         text = text.strip()
 
         # =====================================================
-        # FILESYSTEM STATE INPUT
+        # FILESYSTEM STATE
         # =====================================================
 
         if self.filesystem.handle_state_input(
@@ -218,6 +218,10 @@ class TelegramHandler:
         # =====================================================
 
         if text == "/start":
+            self.filesystem.cancel(
+                user_id
+            )
+
             self.show_main_menu(
                 chat_id,
                 user_id
@@ -229,6 +233,10 @@ class TelegramHandler:
         # =====================================================
 
         if text == "🏠 Главная":
+            self.filesystem.cancel(
+                user_id
+            )
+
             self.show_main_menu(
                 chat_id,
                 user_id
@@ -240,6 +248,10 @@ class TelegramHandler:
         # =====================================================
 
         if text == "ℹ️ Помощь":
+            self.filesystem.cancel(
+                user_id
+            )
+
             self.show_help(
                 chat_id,
                 user_id
@@ -251,11 +263,19 @@ class TelegramHandler:
         # =====================================================
 
         if text == "📁 Файловая система":
+            self.filesystem.cancel(
+                user_id
+            )
+
             self.filesystem.show_filesystem(
                 chat_id,
                 user_id
             )
             return
+
+        # -----------------------------------------------------
+        # MY FILES
+        # -----------------------------------------------------
 
         if text == "📂 Мои файлы":
             self.filesystem.show_files(
@@ -264,12 +284,20 @@ class TelegramHandler:
             )
             return
 
+        # -----------------------------------------------------
+        # CREATE FILE
+        # -----------------------------------------------------
+
         if text == "📄 Создать файл":
             self.filesystem.create_file_start(
                 chat_id,
                 user_id
             )
             return
+
+        # -----------------------------------------------------
+        # CREATE FOLDER
+        # -----------------------------------------------------
 
         if text == "📁 Создать папку":
             self.filesystem.create_folder_start(
@@ -278,6 +306,10 @@ class TelegramHandler:
             )
             return
 
+        # -----------------------------------------------------
+        # REFRESH
+        # -----------------------------------------------------
+
         if text == "🔄 Обновить":
             self.filesystem.show_files(
                 chat_id,
@@ -285,11 +317,130 @@ class TelegramHandler:
             )
             return
 
+        # -----------------------------------------------------
+        # BACK
+        # -----------------------------------------------------
+
         if text == "⬅️ Назад":
-            self.filesystem.show_files(
+            self.filesystem.go_back(
                 chat_id,
                 user_id
             )
+            return
+
+        # -----------------------------------------------------
+        # EDIT FILE
+        # -----------------------------------------------------
+
+        if text == "✏️ Изменить файл":
+            state = self.filesystem.states.get(
+                user_id,
+                {}
+            )
+
+            path = state.get(
+                "path"
+            )
+
+            if path:
+                self.filesystem.edit_file_start(
+                    chat_id,
+                    user_id,
+                    path
+                )
+            else:
+                self.filesystem.show_files(
+                    chat_id,
+                    user_id
+                )
+
+            return
+
+        # -----------------------------------------------------
+        # DELETE FILE
+        # -----------------------------------------------------
+
+        if text == "🗑 Удалить файл":
+            state = self.filesystem.states.get(
+                user_id,
+                {}
+            )
+
+            path = state.get(
+                "path"
+            )
+
+            if path:
+                self.filesystem.delete_file_start(
+                    chat_id,
+                    user_id,
+                    path
+                )
+            else:
+                self.filesystem.show_files(
+                    chat_id,
+                    user_id
+                )
+
+            return
+
+        # -----------------------------------------------------
+        # OPEN FILE
+        # -----------------------------------------------------
+
+        if text.startswith("📄 "):
+            name = text[2:].strip()
+
+            directory = (
+                self.filesystem.get_current_directory(
+                    user_id
+                )
+            )
+
+            if directory == "/":
+                path = name
+            else:
+                path = (
+                    directory.lstrip("/")
+                    + name
+                )
+
+            self.filesystem.open_path(
+                chat_id,
+                user_id,
+                path
+            )
+
+            return
+
+        # -----------------------------------------------------
+        # OPEN FOLDER
+        # -----------------------------------------------------
+
+        if text.startswith("📁 "):
+            name = text[2:].strip()
+
+            directory = (
+                self.filesystem.get_current_directory(
+                    user_id
+                )
+            )
+
+            if directory == "/":
+                path = name + "/"
+            else:
+                path = (
+                    directory.lstrip("/")
+                    + name
+                    + "/"
+                )
+
+            self.filesystem.open_path(
+                chat_id,
+                user_id,
+                path
+            )
+
             return
 
         # =====================================================
@@ -340,13 +491,6 @@ class TelegramHandler:
 
         if text == "📊 Статистика группы":
             self.group.show_statistics(
-                chat_id,
-                user_id
-            )
-            return
-
-        if text == "🔄 Обновить":
-            self.group.show_dashboard(
                 chat_id,
                 user_id
             )
@@ -427,41 +571,6 @@ class TelegramHandler:
             return
 
         # =====================================================
-        # GAMES
-        # =====================================================
-
-        if text == "🎮 Игры":
-            try:
-                keyboard = {
-                    "keyboard": [
-                        [
-                            {"text": "🎲 Бросить кубик"}
-                        ],
-                        [
-                            {"text": "🏠 Главная"}
-                        ]
-                    ],
-                    "resize_keyboard": True
-                }
-
-                self.send_message(
-                    chat_id,
-                    (
-                        "🎮 <b>ИГРЫ</b>\n\n"
-                        "Выберите игру:"
-                    ),
-                    keyboard
-                )
-
-            except Exception:
-                self.send_message(
-                    chat_id,
-                    "❌ Не удалось открыть игры."
-                )
-
-            return
-
-        # =====================================================
         # UNKNOWN COMMAND
         # =====================================================
 
@@ -475,3 +584,16 @@ class TelegramHandler:
                 )
             )
             return
+
+        # =====================================================
+        # UNKNOWN TEXT
+        # =====================================================
+
+        self.send_message(
+            chat_id,
+            (
+                "🤔 Я не понимаю эту команду.\n\n"
+                "Используйте /start, чтобы открыть "
+                "главное меню."
+            )
+        )
