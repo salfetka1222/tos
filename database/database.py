@@ -122,15 +122,13 @@ class Database:
         with self.connect() as connection:
             connection.execute(
                 """
-                UPDATE files
-                SET path = ?
+                DELETE FROM files
                 WHERE user_id = ? AND path = ?
                 """,
-                (
-                    "/home/user/Trash/" + path.split("/")[-1],
-                    user_id,
-                    path
-                )
+                (user_id, path)
             )
 
             connection.commit()
+
+    def path_exists(self, user_id, path):
+        return self.get_file(user_id, path) is not None
