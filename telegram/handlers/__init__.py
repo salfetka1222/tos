@@ -12,6 +12,17 @@ def __init__(self, bot, database):
         self.group_os
     )
 
+    self.dev = DeveloperHandler(
+        bot,
+        database,
+        self.developer
+    )
+
+    self.filesystem = FilesystemHandler(
+        bot,
+        database
+    )
+
     self.file_states = {}
     self.terminal_dirs = {}
     self.command_history = {}
