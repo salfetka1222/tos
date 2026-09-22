@@ -213,6 +213,13 @@ class TelegramHandler:
                 user_id
             )
             return
+            
+        if text == "🖥️ Главное меню":
+            self.show_home(
+                chat_id,
+                user_id
+            )
+            return
 
         if text == "📁 Файловая система":
             self.show_filesystem(
