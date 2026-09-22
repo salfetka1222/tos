@@ -7,6 +7,7 @@ from .developer import DeveloperHandler
 from .filesystem import FilesystemHandler
 from .terminal import TerminalHandler
 from .profile import ProfileHandler
+from .achievements import AchievementsHandler
 
 __all__ = [
     "GroupHandler",
@@ -14,4 +15,5 @@ __all__ = [
     "FilesystemHandler",
     "TerminalHandler",
     "ProfileHandler",
+    "AchievementsHandler",
 ]
