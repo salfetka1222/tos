@@ -11,6 +11,10 @@ class TelegramHandler:
         self.terminal_dirs = {}
         self.command_history = {}
 
+    # =========================================================
+    # UPDATE
+    # =========================================================
+
     def handle_update(self, update):
         message = update.get("message")
 
@@ -23,11 +27,19 @@ class TelegramHandler:
         user = message.get("from", {})
         user_id = user.get("id")
 
-        if user_id:
-            self.database.create_user(
-                user_id,
-                user.get("username")
-            )
+        if not user_id:
+            return
+
+        self.database.create_user(
+            user_id,
+            user.get("username")
+        )
+
+        # Первое достижение
+        self.database.unlock_achievement(
+            user_id,
+            "First Login"
+        )
 
         # -------------------------
         # FILE STATES
@@ -84,12 +96,34 @@ class TelegramHandler:
             return
 
         # -------------------------
-        # MENU
+        # COMMANDS
         # -------------------------
 
         if text == "/start":
             self.file_states.pop(user_id, None)
+
+            self.database.add_xp(
+                user_id,
+                10
+            )
+
             self.show_home(chat_id)
+
+        elif text == "/profile":
+            self.show_profile(
+                chat_id,
+                message
+            )
+
+        elif text == "/achievements":
+            self.show_achievements(
+                chat_id,
+                user_id
+            )
+
+        # -------------------------
+        # MENU
+        # -------------------------
 
         elif text == "📁 Файлы":
             self.file_states.pop(user_id, None)
@@ -164,6 +198,12 @@ class TelegramHandler:
                 message
             )
 
+        elif text == "🏆 Достижения":
+            self.show_achievements(
+                chat_id,
+                user_id
+            )
+
         elif text == "📦 App Store":
             self.show_app_store(chat_id)
 
@@ -221,6 +261,9 @@ class TelegramHandler:
             ],
             [
                 {"text": "👤 Профиль"},
+                {"text": "🏆 Достижения"}
+            ],
+            [
                 {"text": "📦 App Store"}
             ]
         ]
@@ -350,16 +393,33 @@ class TelegramHandler:
             content=""
         )
 
+        self.database.add_xp(
+            user_id,
+            5
+        )
+
+        if not self.database.has_achievement(
+            user_id,
+            "Explorer"
+        ):
+            self.database.unlock_achievement(
+                user_id,
+                "Explorer"
+            )
+
         self.file_states.pop(user_id, None)
 
         self.send_message(
             chat_id,
             f"✅ Файл создан!\n\n"
             f"📄 {filename}\n"
-            f"📍 {path}"
+            f"📍 {path}\n\n"
+            "✨ +5 XP"
         )
 
     def show_directory(self, chat_id, user_id, directory):
+        self.initialize_filesystem(user_id)
+
         files = self.database.get_files(
             user_id,
             directory
@@ -515,6 +575,11 @@ class TelegramHandler:
             content
         )
 
+        self.database.add_xp(
+            user_id,
+            5
+        )
+
         self.file_states.pop(
             user_id,
             None
@@ -526,7 +591,8 @@ class TelegramHandler:
             chat_id,
             f"✅ Файл сохранён!\n\n"
             f"📄 {filename}\n"
-            f"📍 {path}"
+            f"📍 {path}\n\n"
+            "✨ +5 XP"
         )
 
     # =========================================================
@@ -587,7 +653,6 @@ class TelegramHandler:
             command
         )
 
-        # Максимум 50 последних команд
         self.command_history[user_id] = (
             self.command_history[user_id][-50:]
         )
@@ -612,6 +677,33 @@ class TelegramHandler:
             user_id,
             command_line
         )
+
+        # Статистика команд
+        self.database.increment_commands(
+            user_id
+        )
+
+        # XP за использование терминала
+        self.database.add_xp(
+            user_id,
+            1
+        )
+
+        # Достижение Terminal User
+        self.database.unlock_achievement(
+            user_id,
+            "Terminal User"
+        )
+
+        user = self.database.get_user(
+            user_id
+        )
+
+        if user and user["commands"] >= 100:
+            self.database.unlock_achievement(
+                user_id,
+                "100 Commands"
+            )
 
         parts = command_line.split()
 
@@ -907,9 +999,15 @@ class TelegramHandler:
                 content=""
             )
 
+            self.database.add_xp(
+                user_id,
+                5
+            )
+
             self.terminal_output(
                 chat_id,
-                f"✅ Создан файл: {filename}"
+                f"✅ Создан файл: {filename}\n"
+                "✨ +5 XP"
             )
             return
 
@@ -958,9 +1056,15 @@ class TelegramHandler:
                 file_type="directory"
             )
 
+            self.database.add_xp(
+                user_id,
+                5
+            )
+
             self.terminal_output(
                 chat_id,
-                f"✅ Создана папка: {dirname}"
+                f"✅ Создана папка: {dirname}\n"
+                "✨ +5 XP"
             )
             return
 
@@ -1060,9 +1164,15 @@ class TelegramHandler:
                 content
             )
 
+            self.database.add_xp(
+                user_id,
+                5
+            )
+
             self.terminal_output(
                 chat_id,
-                "✅ Файл записан."
+                "✅ Файл записан.\n"
+                "✨ +5 XP"
             )
             return
 
@@ -1187,9 +1297,15 @@ class TelegramHandler:
                 content=source_file[3] or ""
             )
 
+            self.database.add_xp(
+                user_id,
+                5
+            )
+
             self.terminal_output(
                 chat_id,
-                f"📋 Скопировано: {args[0]} → {args[1]}"
+                f"📋 Скопировано: {args[0]} → {args[1]}\n"
+                "✨ +5 XP"
             )
             return
 
@@ -1258,9 +1374,15 @@ class TelegramHandler:
                 source
             )
 
+            self.database.add_xp(
+                user_id,
+                5
+            )
+
             self.terminal_output(
                 chat_id,
-                f"📦 Перемещено: {args[0]} → {args[1]}"
+                f"📦 Перемещено: {args[0]} → {args[1]}\n"
+                "✨ +5 XP"
             )
             return
 
@@ -1384,6 +1506,10 @@ class TelegramHandler:
             "Введите $ help"
         )
 
+    # =========================================================
+    # TREE
+    # =========================================================
+
     def build_tree(
         self,
         user_id,
@@ -1476,15 +1602,18 @@ class TelegramHandler:
             keyboard
         )
 
-    def show_profile(self, chat_id, message):
-        user = message.get("from", {})
+    # =========================================================
+    # PROFILE
+    # =========================================================
 
-        user_id = user.get(
-            "id",
-            "неизвестно"
+    def show_profile(self, chat_id, message):
+        user_info = message.get("from", {})
+
+        user_id = user_info.get(
+            "id"
         )
 
-        username = user.get(
+        username = user_info.get(
             "username"
         )
 
@@ -1493,15 +1622,127 @@ class TelegramHandler:
         else:
             username = "не установлен"
 
+        user = self.database.get_user(
+            user_id
+        )
+
+        if not user:
+            self.database.create_user(
+                user_id,
+                user_info.get("username")
+            )
+
+            user = self.database.get_user(
+                user_id
+            )
+
+        keyboard = [
+            [
+                {"text": "🏆 Достижения"}
+            ],
+            [
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
         self.send_message(
             chat_id,
             "👤 ПРОФИЛЬ T-OS\n\n"
             f"🆔 ID: {user_id}\n"
             f"👤 Username: {username}\n\n"
-            "⭐ Уровень: 1\n"
-            "✨ XP: 0\n"
-            "🪙 T-Coins: 0"
+
+            f"⭐ Уровень: {user['level']}\n"
+            f"✨ XP: {user['xp']}\n"
+            f"🪙 T-Coins: {user['coins']}\n\n"
+
+            "📊 СТАТИСТИКА\n"
+            f"⌨️ Команд: {user['commands']}\n"
+            f"🎮 Игр сыграно: {user['games_played']}\n"
+            f"🏆 Побед в играх: {user['games_won']}",
+            keyboard
         )
+
+    # =========================================================
+    # ACHIEVEMENTS
+    # =========================================================
+
+    def show_achievements(self, chat_id, user_id):
+        achievements = self.database.get_achievements(
+            user_id
+        )
+
+        achievement_names = {
+            "First Login": "🚀 Первый вход",
+            "First Game": "🎮 Первая игра",
+            "100 Commands": "⌨️ 100 команд",
+            "Terminal User": "💻 Пользователь Terminal",
+            "Millionaire": "🪙 Миллионер",
+            "Group Veteran": "👥 Ветеран группы",
+            "Gift Sender": "🎁 Отправитель подарков",
+            "Explorer": "🗺️ Исследователь"
+        }
+
+        lines = [
+            "🏆 ДОСТИЖЕНИЯ T-OS",
+            "",
+            f"Разблокировано: {len(achievements)}",
+            ""
+        ]
+
+        unlocked = set()
+
+        for achievement in achievements:
+            name = achievement["achievement"]
+
+            unlocked.add(name)
+
+            lines.append(
+                "✅ "
+                + achievement_names.get(
+                    name,
+                    name
+                )
+            )
+
+        all_achievements = [
+            "First Login",
+            "First Game",
+            "100 Commands",
+            "Terminal User",
+            "Millionaire",
+            "Group Veteran",
+            "Gift Sender",
+            "Explorer"
+        ]
+
+        for name in all_achievements:
+            if name not in unlocked:
+                lines.append(
+                    "🔒 "
+                    + achievement_names.get(
+                        name,
+                        name
+                    )
+                )
+
+        keyboard = [
+            [
+                {"text": "👤 Профиль"}
+            ],
+            [
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            "\n".join(lines),
+            keyboard
+        )
+
+    # =========================================================
+    # NOTES
+    # =========================================================
 
     def show_notes(self, chat_id):
         self.send_message(
@@ -1510,12 +1751,20 @@ class TelegramHandler:
             "Система заметок T-OS находится в разработке."
         )
 
+    # =========================================================
+    # CALCULATOR
+    # =========================================================
+
     def show_calculator(self, chat_id):
         self.send_message(
             chat_id,
             "🧮 КАЛЬКУЛЯТОР\n\n"
             "Калькулятор T-OS находится в разработке."
         )
+
+    # =========================================================
+    # GAMES
+    # =========================================================
 
     def show_games(self, chat_id):
         self.send_message(
@@ -1525,8 +1774,13 @@ class TelegramHandler:
             "🧠 Quiz\n"
             "🔢 Guess Number\n"
             "🧩 Riddles\n"
-            "⚡ Reaction"
+            "⚡ Reaction\n\n"
+            "Игровая система находится в разработке."
         )
+
+    # =========================================================
+    # SETTINGS
+    # =========================================================
 
     def show_settings(self, chat_id):
         self.send_message(
@@ -1536,6 +1790,10 @@ class TelegramHandler:
             "🔔 Уведомления: включены\n"
             "🖥️ Режим: Personal OS"
         )
+
+    # =========================================================
+    # APP STORE
+    # =========================================================
 
     def show_app_store(self, chat_id):
         self.send_message(
