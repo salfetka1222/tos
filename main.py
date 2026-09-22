@@ -1,33 +1,20 @@
-from core.system import TOS
-from core.users import UserManager
-from database.database import Database
+from telegram.bot import TelegramBot
 
 
 def main():
-    system = TOS()
+    bot = TelegramBot()
 
-    database = Database()
-    database.initialize()
+    info = bot.get_me()
 
-    users = UserManager(database)
+    if info.get("ok"):
+        user = info["result"]
 
-    user = users.create_user(
-        user_id=1,
-        username="test_user"
-    )
-
-    print("🖥️ T-OS")
-    print("=" * 20)
-
-    print(f"Версия: {system.version}")
-    print(f"Язык: {system.language}")
-
-    print("\n💾 Database")
-    print("SQLite: OK")
-
-    print("\n👤 Пользователь")
-    print(f"ID: {user.user_id}")
-    print(f"Username: @{user.username}")
+        print("📡 Telegram API: OK")
+        print(f"🤖 Бот: @{user.get('username')}")
+        print(f"🆔 ID: {user.get('id')}")
+    else:
+        print("❌ Telegram API: ERROR")
+        print(info)
 
 
 if __name__ == "__main__":
