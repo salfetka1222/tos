@@ -177,9 +177,8 @@ class TelegramHandler:
 
         if text == "/dev":
 
-            if not self.developer.is_developer(
-                user_id
-            ):
+            if not self.developer.is_developer(user_id):
+
                 self.send_message(
                     chat_id,
                     "⛔ Доступ запрещён."
@@ -192,9 +191,7 @@ class TelegramHandler:
                 details="Opened developer panel"
             )
 
-            self.show_developer_panel(
-                chat_id
-            )
+            self.show_developer_panel(chat_id)
 
             return
 
@@ -204,13 +201,8 @@ class TelegramHandler:
 
         if text == "/start":
 
-            self.initialize_filesystem(
-                user_id
-            )
-
-            self.show_home(
-                chat_id
-            )
+            self.initialize_filesystem(user_id)
+            self.show_home(chat_id)
 
             return
 
@@ -237,6 +229,82 @@ class TelegramHandler:
         # =================================================
 
         if text == "/group":
+
+            self.show_group_dashboard(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        # =================================================
+        # GROUP OS BUTTONS
+        # =================================================
+
+        if text == "👥 Участники":
+
+            self.show_group_members(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "🛡 Модерация":
+
+            self.show_group_moderation(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "📜 Журнал группы":
+
+            self.show_group_audit_log(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "⚙️ Права доступа":
+
+            self.show_group_permissions(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "🤖 Настройки ИИ":
+
+            self.show_group_ai_settings(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "📊 Статистика группы":
+
+            self.show_group_statistics(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "🔄 Обновить":
+
+            self.show_group_dashboard(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "⬅️ Назад в Group OS":
 
             self.show_group_dashboard(
                 chat_id,
@@ -389,9 +457,7 @@ class TelegramHandler:
 
         if text == "❌ Выйти из игры":
 
-            self.games.cancel_game(
-                user_id
-            )
+            self.games.cancel_game(user_id)
 
             self.show_games(
                 chat_id,
@@ -405,9 +471,8 @@ class TelegramHandler:
 
         if text == "📊 Статистика":
 
-            if not self.developer.is_developer(
-                user_id
-            ):
+            if not self.developer.is_developer(user_id):
+
                 self.send_message(
                     chat_id,
                     "⛔ Доступ запрещён."
@@ -420,17 +485,14 @@ class TelegramHandler:
                 details="Viewed system statistics"
             )
 
-            self.show_developer_stats(
-                chat_id
-            )
+            self.show_developer_stats(chat_id)
 
             return
 
         if text == "👥 Пользователи":
 
-            if not self.developer.is_developer(
-                user_id
-            ):
+            if not self.developer.is_developer(user_id):
+
                 self.send_message(
                     chat_id,
                     "⛔ Доступ запрещён."
@@ -443,17 +505,14 @@ class TelegramHandler:
                 details="Viewed user list"
             )
 
-            self.show_developer_users(
-                chat_id
-            )
+            self.show_developer_users(chat_id)
 
             return
 
         if text == "💾 База данных":
 
-            if not self.developer.is_developer(
-                user_id
-            ):
+            if not self.developer.is_developer(user_id):
+
                 self.send_message(
                     chat_id,
                     "⛔ Доступ запрещён."
@@ -466,17 +525,14 @@ class TelegramHandler:
                 details="Viewed database information"
             )
 
-            self.show_database_info(
-                chat_id
-            )
+            self.show_database_info(chat_id)
 
             return
 
         if text == "🧾 Audit Log":
 
-            if not self.developer.is_developer(
-                user_id
-            ):
+            if not self.developer.is_developer(user_id):
+
                 self.send_message(
                     chat_id,
                     "⛔ Доступ запрещён."
@@ -489,17 +545,14 @@ class TelegramHandler:
                 details="Viewed audit log"
             )
 
-            self.show_audit_log(
-                chat_id
-            )
+            self.show_audit_log(chat_id)
 
             return
 
         if text == "🧪 Experimental Lab":
 
-            if not self.developer.is_developer(
-                user_id
-            ):
+            if not self.developer.is_developer(user_id):
+
                 self.send_message(
                     chat_id,
                     "⛔ Доступ запрещён."
@@ -515,7 +568,7 @@ class TelegramHandler:
             self.send_message(
                 chat_id,
                 (
-                    "🧪 EXPERIMENTAL LAB\n\n"
+                    "🧪 ЭКСПЕРИМЕНТАЛЬНАЯ ЛАБОРАТОРИЯ\n\n"
                     "Экспериментальные функции пока отключены."
                 )
             )
@@ -524,9 +577,8 @@ class TelegramHandler:
 
         if text == "⚙️ Система":
 
-            if not self.developer.is_developer(
-                user_id
-            ):
+            if not self.developer.is_developer(user_id):
+
                 self.send_message(
                     chat_id,
                     "⛔ Доступ запрещён."
@@ -539,9 +591,7 @@ class TelegramHandler:
                 details="Viewed system information"
             )
 
-            self.show_system_info(
-                chat_id
-            )
+            self.show_system_info(chat_id)
 
             return
 
@@ -585,20 +635,113 @@ class TelegramHandler:
     # GROUP OS
     # =====================================================
 
-    def show_group_dashboard(
+    def get_group_chat(
         self,
-        chat_id,
-        user_id
+        chat_id
     ):
 
-        chat_response = self.bot.request(
+        response = self.bot.request(
             "getChat",
             {
                 "chat_id": chat_id
             }
         )
 
-        if not chat_response or not chat_response.get("ok"):
+        if not response or not response.get("ok"):
+            return None
+
+        return response.get("result", {})
+
+    def is_group(
+        self,
+        chat_id
+    ):
+
+        chat = self.get_group_chat(chat_id)
+
+        if not chat:
+            return False
+
+        return chat.get("type") in (
+            "group",
+            "supergroup"
+        )
+
+    def get_group_member(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        response = self.bot.request(
+            "getChatMember",
+            {
+                "chat_id": chat_id,
+                "user_id": user_id
+            }
+        )
+
+        if not response or not response.get("ok"):
+            return None
+
+        return response.get("result")
+
+    def is_group_admin(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        member = self.get_group_member(
+            chat_id,
+            user_id
+        )
+
+        if not member:
+            return False
+
+        return member.get("status") in (
+            "creator",
+            "administrator"
+        )
+
+    def get_bot_member(
+        self,
+        chat_id
+    ):
+
+        me_response = self.bot.request(
+            "getMe",
+            {}
+        )
+
+        if not me_response or not me_response.get("ok"):
+            return None
+
+        bot_user = me_response.get(
+            "result",
+            {}
+        )
+
+        bot_id = bot_user.get("id")
+
+        if not bot_id:
+            return None
+
+        return self.get_group_member(
+            chat_id,
+            bot_id
+        )
+
+    def show_group_dashboard(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        chat_data = self.get_group_chat(chat_id)
+
+        if not chat_data:
 
             self.send_message(
                 chat_id,
@@ -606,11 +749,6 @@ class TelegramHandler:
             )
 
             return
-
-        chat_data = chat_response.get(
-            "result",
-            {}
-        )
 
         chat_type = chat_data.get(
             "type",
@@ -658,12 +796,10 @@ class TelegramHandler:
             members_response
             and members_response.get("ok")
         ):
-
             members = members_response.get(
                 "result",
                 "?"
             )
-
         else:
             members = "?"
 
@@ -676,16 +812,19 @@ class TelegramHandler:
 
         keyboard = [
             [
-                {"text": "👥 Members"},
-                {"text": "🛡 Moderation"}
+                {"text": "👥 Участники"},
+                {"text": "🛡 Модерация"}
             ],
             [
-                {"text": "📜 Group Audit Log"},
-                {"text": "⚙️ Permissions"}
+                {"text": "📜 Журнал группы"},
+                {"text": "⚙️ Права доступа"}
             ],
             [
-                {"text": "🤖 AI Settings"},
-                {"text": "📊 Statistics"}
+                {"text": "🤖 Настройки ИИ"},
+                {"text": "📊 Статистика группы"}
+            ],
+            [
+                {"text": "🔄 Обновить"}
             ],
             [
                 {"text": "🖥️ Главное меню"}
@@ -696,20 +835,582 @@ class TelegramHandler:
             chat_id,
             (
                 "🖥️ <b>T-OS GROUP OS</b>\n\n"
-                "🏠 <b>GROUP DASHBOARD</b>\n\n"
+                "🏠 <b>ПАНЕЛЬ ГРУППЫ</b>\n\n"
                 f"📌 <b>Название:</b> {title}\n"
                 f"🆔 <b>ID:</b> <code>{chat_id}</code>\n"
-                f"💬 <b>Тип:</b> {chat_type}\n"
+                f"💬 <b>Тип:</b> {self.translate_chat_type(chat_type)}\n"
                 f"🔗 <b>Username:</b> {username}\n"
                 f"👥 <b>Участников:</b> {members}\n\n"
-                "🟢 <b>T-OS:</b> ACTIVE\n\n"
-                "⚙️ <b>GROUP OS MODULES</b>\n"
-                "├ 👥 Members\n"
-                "├ 🛡 Moderation\n"
-                "├ 📜 Group Audit Log\n"
-                "├ ⚙️ Permissions\n"
-                "├ 🤖 AI Settings\n"
-                "└ 📊 Statistics"
+                "🟢 <b>T-OS:</b> АКТИВЕН\n\n"
+                "⚙️ <b>МОДУЛИ GROUP OS</b>\n"
+                "├ 👥 Участники\n"
+                "├ 🛡 Модерация\n"
+                "├ 📜 Журнал группы\n"
+                "├ ⚙️ Права доступа\n"
+                "├ 🤖 Настройки ИИ\n"
+                "└ 📊 Статистика"
+            ),
+            {
+                "keyboard": keyboard,
+                "resize_keyboard": True
+            }
+        )
+
+    def translate_chat_type(
+        self,
+        chat_type
+    ):
+
+        types = {
+            "group": "группа",
+            "supergroup": "супергруппа",
+            "private": "личный чат",
+            "channel": "канал"
+        }
+
+        return types.get(
+            chat_type,
+            chat_type
+        )
+
+    # =====================================================
+    # GROUP MEMBERS
+    # =====================================================
+
+    def show_group_members(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        if not self.is_group(chat_id):
+
+            self.send_message(
+                chat_id,
+                "⚠️ Этот раздел работает только в группе."
+            )
+
+            return
+
+        self.audit(
+            actor_id=user_id,
+            action="group_members",
+            target_id=chat_id,
+            details="Opened group members"
+        )
+
+        try:
+            text = self.group_os.render_members(
+                chat_id
+            )
+        except Exception as error:
+
+            text = (
+                "❌ Не удалось загрузить список участников.\n\n"
+                f"<code>{error}</code>"
+            )
+
+        keyboard = [
+            [
+                {"text": "🔄 Обновить"}
+            ],
+            [
+                {"text": "⬅️ Назад в Group OS"},
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            text,
+            {
+                "keyboard": keyboard,
+                "resize_keyboard": True
+            }
+        )
+
+    # =====================================================
+    # GROUP MODERATION
+    # =====================================================
+
+    def show_group_moderation(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        if not self.is_group(chat_id):
+
+            self.send_message(
+                chat_id,
+                "⚠️ Модерация доступна только в группе."
+            )
+
+            return
+
+        user_admin = self.is_group_admin(
+            chat_id,
+            user_id
+        )
+
+        bot_member = self.get_bot_member(
+            chat_id
+        )
+
+        if bot_member:
+            bot_status = bot_member.get(
+                "status",
+                "unknown"
+            )
+
+            bot_can_delete = bot_member.get(
+                "can_delete_messages",
+                False
+            )
+
+            bot_can_restrict = bot_member.get(
+                "can_restrict_members",
+                False
+            )
+
+            bot_can_promote = bot_member.get(
+                "can_promote_members",
+                False
+            )
+        else:
+            bot_status = "unknown"
+            bot_can_delete = False
+            bot_can_restrict = False
+            bot_can_promote = False
+
+        user_status = (
+            "🟢 Администратор"
+            if user_admin
+            else "👤 Участник"
+        )
+
+        self.audit(
+            actor_id=user_id,
+            action="group_moderation",
+            target_id=chat_id,
+            details="Opened moderation panel"
+        )
+
+        keyboard = [
+            [
+                {"text": "🔄 Обновить"}
+            ],
+            [
+                {"text": "⬅️ Назад в Group OS"}
+            ],
+            [
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            (
+                "🛡️ <b>МОДЕРАЦИЯ</b>\n\n"
+                f"👤 <b>Ваш статус:</b> {user_status}\n\n"
+                f"🤖 <b>Статус бота:</b> {bot_status}\n\n"
+                "🔐 <b>Права бота</b>\n"
+                f"├ 🗑 Удаление сообщений: "
+                f"{'🟢' if bot_can_delete else '🔴'}\n"
+                f"├ 🔇 Ограничение участников: "
+                f"{'🟢' if bot_can_restrict else '🔴'}\n"
+                f"└ 👑 Управление администраторами: "
+                f"{'🟢' if bot_can_promote else '🔴'}\n\n"
+                "ℹ️ <i>Инструменты предупреждений, "
+                "мутов и банов будут добавлены "
+                "в следующий этап модуля.</i>"
+            ),
+            {
+                "keyboard": keyboard,
+                "resize_keyboard": True
+            }
+        )
+
+    # =====================================================
+    # GROUP AUDIT LOG
+    # =====================================================
+
+    def show_group_audit_log(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        if not self.is_group(chat_id):
+
+            self.send_message(
+                chat_id,
+                "⚠️ Журнал группы доступен только в группе."
+            )
+
+            return
+
+        self.audit(
+            actor_id=user_id,
+            action="group_audit_log",
+            target_id=chat_id,
+            details="Opened group audit log"
+        )
+
+        logs = []
+
+        try:
+            all_logs = self.database.get_audit_logs(
+                limit=100
+            )
+
+            for log in all_logs:
+
+                target = log.get("target_id")
+
+                if str(target) == str(chat_id):
+                    logs.append(log)
+
+        except Exception:
+            logs = []
+
+        lines = [
+            "📜 <b>ЖУРНАЛ ГРУППЫ</b>",
+            "",
+            f"🆔 Группа: <code>{chat_id}</code>",
+            ""
+        ]
+
+        if not logs:
+
+            lines.extend([
+                "📭 Записей пока нет.",
+                "",
+                "Новые действия T-OS будут "
+                "появляться здесь."
+            ])
+
+        else:
+
+            lines.append(
+                f"📌 Последние событий: {len(logs)}"
+            )
+            lines.append("")
+
+            for log in logs[:20]:
+
+                timestamp = log.get(
+                    "created_at",
+                    "?"
+                )
+
+                actor = log.get(
+                    "actor_id",
+                    "?"
+                )
+
+                action = log.get(
+                    "action",
+                    "?"
+                )
+
+                details = log.get(
+                    "details",
+                    ""
+                )
+
+                lines.append(
+                    f"🕐 {timestamp}"
+                )
+
+                lines.append(
+                    f"👤 {actor} → {action}"
+                )
+
+                if details:
+                    lines.append(
+                        f"📝 {details}"
+                    )
+
+                lines.append("")
+
+        text = "\n".join(lines)
+
+        if len(text) > 3900:
+            text = text[:3900] + "\n\n..."
+
+        keyboard = [
+            [
+                {"text": "🔄 Обновить"}
+            ],
+            [
+                {"text": "⬅️ Назад в Group OS"},
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            text,
+            {
+                "keyboard": keyboard,
+                "resize_keyboard": True
+            }
+        )
+
+    # =====================================================
+    # GROUP PERMISSIONS
+    # =====================================================
+
+    def show_group_permissions(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        if not self.is_group(chat_id):
+
+            self.send_message(
+                chat_id,
+                "⚠️ Права доступа доступны только в группе."
+            )
+
+            return
+
+        user_member = self.get_group_member(
+            chat_id,
+            user_id
+        )
+
+        bot_member = self.get_bot_member(
+            chat_id
+        )
+
+        user_status = (
+            user_member.get("status", "unknown")
+            if user_member
+            else "unknown"
+        )
+
+        bot_status = (
+            bot_member.get("status", "unknown")
+            if bot_member
+            else "unknown"
+        )
+
+        self.audit(
+            actor_id=user_id,
+            action="group_permissions",
+            target_id=chat_id,
+            details="Opened group permissions"
+        )
+
+        keyboard = [
+            [
+                {"text": "🔄 Обновить"}
+            ],
+            [
+                {"text": "⬅️ Назад в Group OS"}
+            ],
+            [
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            (
+                "⚙️ <b>ПРАВА ДОСТУПА</b>\n\n"
+                "👤 <b>Ваш аккаунт</b>\n"
+                f"Статус: <b>{self.translate_member_status(user_status)}</b>\n\n"
+                "🤖 <b>T-OS</b>\n"
+                f"Статус: <b>{self.translate_member_status(bot_status)}</b>\n\n"
+                "🔐 <b>Уровни доступа</b>\n"
+                "├ 👑 Владелец\n"
+                "├ 🛡 Администратор\n"
+                "├ 🔧 Модератор T-OS\n"
+                "└ 👤 Участник\n\n"
+                "ℹ️ Управление ролями T-OS будет "
+                "добавлено после создания системы "
+                "разрешений группы."
+            ),
+            {
+                "keyboard": keyboard,
+                "resize_keyboard": True
+            }
+        )
+
+    def translate_member_status(
+        self,
+        status
+    ):
+
+        statuses = {
+            "creator": "Владелец 👑",
+            "administrator": "Администратор 🛡️",
+            "member": "Участник 👤",
+            "restricted": "Ограничен 🔇",
+            "left": "Вышел",
+            "kicked": "Заблокирован"
+        }
+
+        return statuses.get(
+            status,
+            status
+        )
+
+    # =====================================================
+    # GROUP AI SETTINGS
+    # =====================================================
+
+    def show_group_ai_settings(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        if not self.is_group(chat_id):
+
+            self.send_message(
+                chat_id,
+                "⚠️ Настройки ИИ доступны только в группе."
+            )
+
+            return
+
+        self.audit(
+            actor_id=user_id,
+            action="group_ai_settings",
+            target_id=chat_id,
+            details="Opened group AI settings"
+        )
+
+        keyboard = [
+            [
+                {"text": "🔄 Обновить"}
+            ],
+            [
+                {"text": "⬅️ Назад в Group OS"}
+            ],
+            [
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            (
+                "🤖 <b>НАСТРОЙКИ ИИ</b>\n\n"
+                "🟢 <b>T-OS AI:</b> подключён\n\n"
+                "⚙️ <b>Текущие настройки</b>\n"
+                "├ 💬 Ответы: доступны\n"
+                "├ 🧠 Контекст группы: не настроен\n"
+                "├ 🔒 Ограничения: стандартные\n"
+                "└ 👥 Режим: общий\n\n"
+                "ℹ️ Настоящее управление ИИ "
+                "для группы добавим отдельным этапом.\n\n"
+                "Здесь позже можно будет настроить "
+                "режим работы T-OS именно для этой группы."
+            ),
+            {
+                "keyboard": keyboard,
+                "resize_keyboard": True
+            }
+        )
+
+    # =====================================================
+    # GROUP STATISTICS
+    # =====================================================
+
+    def show_group_statistics(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        if not self.is_group(chat_id):
+
+            self.send_message(
+                chat_id,
+                "⚠️ Статистика доступна только в группе."
+            )
+
+            return
+
+        chat = self.get_group_chat(
+            chat_id
+        )
+
+        members_response = self.bot.request(
+            "getChatMemberCount",
+            {
+                "chat_id": chat_id
+            }
+        )
+
+        if (
+            members_response
+            and members_response.get("ok")
+        ):
+            members = members_response.get(
+                "result",
+                "?"
+            )
+        else:
+            members = "?"
+
+        title = (
+            chat.get("title", "Без названия")
+            if chat
+            else "Без названия"
+        )
+
+        try:
+            logs = self.database.get_audit_logs(
+                limit=100
+            )
+
+            group_events = 0
+
+            for log in logs:
+
+                if str(log.get("target_id")) == str(chat_id):
+                    group_events += 1
+
+        except Exception:
+            group_events = 0
+
+        self.audit(
+            actor_id=user_id,
+            action="group_statistics",
+            target_id=chat_id,
+            details="Opened group statistics"
+        )
+
+        keyboard = [
+            [
+                {"text": "🔄 Обновить"}
+            ],
+            [
+                {"text": "⬅️ Назад в Group OS"}
+            ],
+            [
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            (
+                "📊 <b>СТАТИСТИКА ГРУППЫ</b>\n\n"
+                f"📌 <b>Название:</b> {title}\n"
+                f"🆔 <b>ID:</b> <code>{chat_id}</code>\n\n"
+                f"👥 <b>Участников:</b> {members}\n"
+                f"📜 <b>Событий T-OS:</b> {group_events}\n\n"
+                "🟢 <b>Статус Group OS:</b> ACTIVE\n\n"
+                "ℹ️ Более подробная статистика "
+                "сообщений и активности будет добавлена "
+                "после внедрения счётчиков Group OS."
             ),
             {
                 "keyboard": keyboard,
@@ -748,8 +1449,9 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "🖥️ T-OS\n\n"
-                "Добро пожаловать в T-OS.\n\n"
+                "🖥️ <b>T-OS</b>\n\n"
+                "Добро пожаловать в виртуальную "
+                "операционную систему T-OS.\n\n"
                 "Выбери приложение:"
             ),
             {
@@ -788,7 +1490,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "🛠️ T-OS DEVELOPER PANEL\n\n"
+                "🛠️ <b>T-OS DEVELOPER PANEL</b>\n\n"
                 "Центр управления системой T-OS.\n\n"
                 "Выбери раздел:"
             ),
@@ -809,7 +1511,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "📊 T-OS STATISTICS\n\n"
+                "📊 <b>T-OS СТАТИСТИКА</b>\n\n"
                 f"👥 Пользователей: {info['users']}\n"
                 f"📁 Файлов: {info['files']}\n"
                 f"🏆 Достижений: {info['achievements']}"
@@ -836,7 +1538,7 @@ class TelegramHandler:
             return
 
         lines = [
-            "👥 T-OS USERS",
+            "👥 <b>T-OS ПОЛЬЗОВАТЕЛИ</b>",
             ""
         ]
 
@@ -875,7 +1577,7 @@ class TelegramHandler:
             self.send_message(
                 chat_id,
                 (
-                    "🧾 AUDIT LOG\n\n"
+                    "🧾 <b>AUDIT LOG</b>\n\n"
                     "Журнал пока пуст."
                 )
             )
@@ -883,7 +1585,7 @@ class TelegramHandler:
             return
 
         lines = [
-            "🧾 T-OS AUDIT LOG",
+            "🧾 <b>T-OS AUDIT LOG</b>",
             "",
             "Последние события:",
             ""
@@ -904,14 +1606,10 @@ class TelegramHandler:
             )
 
             if target is not None:
-                line += (
-                    f"\n🎯 Target: {target}"
-                )
+                line += f"\n🎯 Target: {target}"
 
             if details:
-                line += (
-                    f"\n📝 {details}"
-                )
+                line += f"\n📝 {details}"
 
             lines.append(line)
             lines.append("")
@@ -937,7 +1635,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "💾 DATABASE\n\n"
+                "💾 <b>DATABASE</b>\n\n"
                 "Engine: SQLite\n"
                 f"Users: {info['users']}\n"
                 f"Files: {info['files']}\n"
@@ -957,7 +1655,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "⚙️ T-OS SYSTEM\n\n"
+                "⚙️ <b>T-OS SYSTEM</b>\n\n"
                 "Status: 🟢 ONLINE\n"
                 "Core: T-OS Core\n"
                 "Database: SQLite\n"
@@ -995,9 +1693,7 @@ class TelegramHandler:
 
     def show_files(self, chat_id, user_id):
 
-        self.initialize_filesystem(
-            user_id
-        )
+        self.initialize_filesystem(user_id)
 
         keyboard = [
             [
@@ -1012,7 +1708,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "📁 FILES\n\n"
+                "📁 <b>FILES</b>\n\n"
                 "/home/user/\n\n"
                 "Выбери действие:"
             ),
@@ -1031,7 +1727,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "📄 Создание файла\n\n"
+                "📄 <b>Создание файла</b>\n\n"
                 "Отправь имя файла.\n\n"
                 "Например:\n"
                 "hello.txt"
@@ -1113,13 +1809,9 @@ class TelegramHandler:
             name = item["path"].split("/")[-1]
 
             if item["file_type"] == "directory":
-                lines.append(
-                    f"📁 {name}"
-                )
+                lines.append(f"📁 {name}")
             else:
-                lines.append(
-                    f"📄 {name}"
-                )
+                lines.append(f"📄 {name}")
 
         self.send_message(
             chat_id,
@@ -1242,9 +1934,7 @@ class TelegramHandler:
         path
     ):
 
-        current = self.get_terminal_dir(
-            user_id
-        )
+        current = self.get_terminal_dir(user_id)
 
         if path.startswith("/"):
             result = path
@@ -1310,23 +2000,15 @@ class TelegramHandler:
             command_line
         )
 
-        self.database.increment_commands(
-            user_id
-        )
-
-        self.database.add_xp(
-            user_id,
-            1
-        )
+        self.database.increment_commands(user_id)
+        self.database.add_xp(user_id, 1)
 
         self.database.unlock_achievement(
             user_id,
             "Terminal User"
         )
 
-        user = self.database.get_user(
-            user_id
-        )
+        user = self.database.get_user(user_id)
 
         if user and user["commands"] >= 100:
 
@@ -1407,7 +2089,7 @@ class TelegramHandler:
 
             self.send_message(
                 chat_id,
-                "🧹 Terminal cleared."
+                "🧹 Терминал очищен."
             )
             return
 
@@ -1426,7 +2108,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "(empty)"
+                    "(пусто)"
                 )
                 return
 
@@ -1466,7 +2148,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "cd: directory not found"
+                    "cd: каталог не найден"
                 )
                 return
 
@@ -1474,7 +2156,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "cd: not a directory"
+                    "cd: это не каталог"
                 )
                 return
 
@@ -1490,7 +2172,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "touch: missing filename"
+                    "touch: не указано имя файла"
                 )
                 return
 
@@ -1506,7 +2188,7 @@ class TelegramHandler:
 
             self.terminal_output(
                 chat_id,
-                "created: " + path
+                "создан: " + path
             )
             return
 
@@ -1516,7 +2198,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "mkdir: missing directory"
+                    "mkdir: не указано имя каталога"
                 )
                 return
 
@@ -1533,7 +2215,7 @@ class TelegramHandler:
 
             self.terminal_output(
                 chat_id,
-                "created directory: " + path
+                "создан каталог: " + path
             )
             return
 
@@ -1543,7 +2225,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "cat: missing file"
+                    "cat: не указан файл"
                 )
                 return
 
@@ -1561,13 +2243,13 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "cat: file not found"
+                    "cat: файл не найден"
                 )
                 return
 
             self.terminal_output(
                 chat_id,
-                file["content"] or "(empty)"
+                file["content"] or "(пусто)"
             )
             return
 
@@ -1577,7 +2259,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "write: usage: $ write <file> <text>"
+                    "write: $ write <файл> <текст>"
                 )
                 return
 
@@ -1605,7 +2287,7 @@ class TelegramHandler:
 
             self.terminal_output(
                 chat_id,
-                "saved: " + path
+                "сохранён: " + path
             )
             return
 
@@ -1623,7 +2305,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "rm: missing file"
+                    "rm: не указан файл"
                 )
                 return
 
@@ -1639,7 +2321,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "rm: not found"
+                    "rm: объект не найден"
                 )
                 return
 
@@ -1650,7 +2332,7 @@ class TelegramHandler:
 
             self.terminal_output(
                 chat_id,
-                "removed: " + path
+                "удалён: " + path
             )
             return
 
@@ -1660,7 +2342,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "cp: usage: $ cp <src> <dst>"
+                    "cp: $ cp <источник> <назначение>"
                 )
                 return
 
@@ -1683,7 +2365,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "cp: source not found"
+                    "cp: источник не найден"
                 )
                 return
 
@@ -1696,7 +2378,7 @@ class TelegramHandler:
 
             self.terminal_output(
                 chat_id,
-                "copied"
+                "скопировано"
             )
             return
 
@@ -1706,7 +2388,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "mv: usage: $ mv <src> <dst>"
+                    "mv: $ mv <источник> <назначение>"
                 )
                 return
 
@@ -1729,7 +2411,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "mv: source not found"
+                    "mv: источник не найден"
                 )
                 return
 
@@ -1747,7 +2429,7 @@ class TelegramHandler:
 
             self.terminal_output(
                 chat_id,
-                "moved"
+                "перемещено"
             )
             return
 
@@ -1764,7 +2446,7 @@ class TelegramHandler:
 
             self.terminal_output(
                 chat_id,
-                output or "(empty)"
+                output or "(пусто)"
             )
             return
 
@@ -1779,7 +2461,7 @@ class TelegramHandler:
 
                 self.terminal_output(
                     chat_id,
-                    "(empty)"
+                    "(пусто)"
                 )
                 return
 
@@ -1863,9 +2545,7 @@ class TelegramHandler:
         user_id
     ):
 
-        self.initialize_filesystem(
-            user_id
-        )
+        self.initialize_filesystem(user_id)
 
         self.set_terminal_dir(
             user_id,
@@ -1875,7 +2555,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "💻 T-OS TERMINAL\n\n"
+                "💻 <b>T-OS ТЕРМИНАЛ</b>\n\n"
                 "Терминал готов.\n\n"
                 "Примеры:\n"
                 "$ help\n"
@@ -1896,9 +2576,7 @@ class TelegramHandler:
         user_id
     ):
 
-        user = self.database.get_user(
-            user_id
-        )
+        user = self.database.get_user(user_id)
 
         if not user:
             return
@@ -1913,15 +2591,15 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "👤 T-OS PROFILE\n\n"
+                "👤 <b>T-OS ПРОФИЛЬ</b>\n\n"
                 f"Username: {username}\n"
                 f"ID: {user['user_id']}\n\n"
-                f"⭐ Level: {user['level']}\n"
+                f"⭐ Уровень: {user['level']}\n"
                 f"XP: {user['xp']}\n"
                 f"🪙 T-Coins: {user['coins']}\n\n"
-                f"⌨️ Commands: {user['commands']}\n"
-                f"🎮 Games: {user['games_played']}\n"
-                f"🏆 Wins: {user['games_won']}"
+                f"⌨️ Команды: {user['commands']}\n"
+                f"🎮 Игр сыграно: {user['games_played']}\n"
+                f"🏆 Побед: {user['games_won']}"
             )
         )
 
@@ -1944,14 +2622,15 @@ class TelegramHandler:
             self.send_message(
                 chat_id,
                 (
-                    "🏆 ACHIEVEMENTS\n\n"
+                    "🏆 <b>ДОСТИЖЕНИЯ</b>\n\n"
                     "Пока достижений нет."
                 )
             )
+
             return
 
         lines = [
-            "🏆 ACHIEVEMENTS",
+            "🏆 <b>ДОСТИЖЕНИЯ</b>",
             ""
         ]
 
@@ -1975,7 +2654,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "📝 NOTES\n\n"
+                "📝 <b>ЗАМЕТКИ</b>\n\n"
                 "Система заметок пока находится "
                 "в разработке."
             )
@@ -1990,7 +2669,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "🧮 CALCULATOR\n\n"
+                "🧮 <b>КАЛЬКУЛЯТОР</b>\n\n"
                 "Калькулятор будет подключён "
                 "на следующем этапе."
             )
@@ -2005,7 +2684,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "⚙️ SETTINGS\n\n"
+                "⚙️ <b>НАСТРОЙКИ</b>\n\n"
                 "Настройки T-OS находятся "
                 "в разработке."
             )
@@ -2020,7 +2699,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "📦 T-OS APP STORE\n\n"
+                "📦 <b>T-OS APP STORE</b>\n\n"
                 "Магазин приложений пока пуст.\n\n"
                 "SDK и система приложений будут "
                 "добавлены позже."
@@ -2060,7 +2739,7 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             (
-                "🎮 T-OS GAMES\n\n"
+                "🎮 <b>T-OS ИГРЫ</b>\n\n"
                 "Выбери игру:"
             ),
             {
@@ -2112,9 +2791,7 @@ class TelegramHandler:
 
         self.send_message(
             chat_id,
-            self.games.start_guess(
-                user_id
-            )
+            self.games.start_guess(user_id)
         )
 
     def start_quiz(
@@ -2125,9 +2802,7 @@ class TelegramHandler:
 
         self.send_message(
             chat_id,
-            self.games.start_quiz(
-                user_id
-            )
+            self.games.start_quiz(user_id)
         )
 
     def start_riddle(
@@ -2138,9 +2813,7 @@ class TelegramHandler:
 
         self.send_message(
             chat_id,
-            self.games.start_riddle(
-                user_id
-            )
+            self.games.start_riddle(user_id)
         )
 
     def start_reaction(
@@ -2151,7 +2824,5 @@ class TelegramHandler:
 
         self.send_message(
             chat_id,
-            self.games.start_reaction(
-                user_id
-            )
+            self.games.start_reaction(user_id)
         )
