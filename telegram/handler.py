@@ -1,12 +1,12 @@
-from telegram.bot import TelegramBot
-from core.dev import DeveloperSystem
-from core.group_os import GroupOS
-
 from telegram.handlers.group import GroupHandler
 from telegram.handlers.developer import DeveloperHandler
 from telegram.handlers.filesystem import FilesystemHandler
 from telegram.handlers.terminal import TerminalHandler
 from telegram.handlers.profile import ProfileHandler
+from telegram.handlers.achievements import AchievementsHandler
+
+from core.dev import DeveloperSystem
+from core.group_os import GroupOS
 
 
 class TelegramHandler:
@@ -30,6 +30,11 @@ class TelegramHandler:
         )
 
         self.profile = ProfileHandler(
+            bot,
+            database
+        )
+
+        self.achievements = AchievementsHandler(
             bot,
             database
         )
@@ -76,10 +81,13 @@ class TelegramHandler:
             "keyboard": [
                 [
                     {"text": "👤 Мой профиль"},
-                    {"text": "📁 Файловая система"}
+                    {"text": "🏆 Достижения"}
                 ],
                 [
-                    {"text": "💻 Terminal"},
+                    {"text": "📁 Файловая система"},
+                    {"text": "💻 Terminal"}
+                ],
+                [
                     {"text": "👥 Group OS"}
                 ],
                 [
@@ -113,10 +121,13 @@ class TelegramHandler:
                 "ℹ️ <b>T-OS HELP</b>\n\n"
 
                 "👤 <b>Мой профиль</b>\n"
-                "Профиль, XP, уровень, монеты и статистика.\n\n"
+                "Профиль, XP, уровень и монеты.\n\n"
+
+                "🏆 <b>Достижения</b>\n"
+                "Ваш прогресс и награды.\n\n"
 
                 "📁 <b>Файловая система</b>\n"
-                "Создание и управление файлами и папками.\n\n"
+                "Создание и управление файлами.\n\n"
 
                 "💻 <b>Terminal</b>\n"
                 "Виртуальный терминал T-OS.\n\n"
@@ -127,7 +138,6 @@ class TelegramHandler:
                 "🛠 <b>Dev Panel</b>\n"
                 "Панель разработчика.\n\n"
 
-                "Команда:\n"
                 "<code>/start</code> — главное меню\n"
                 "<code>/help</code> — помощь"
             )
@@ -138,6 +148,7 @@ class TelegramHandler:
     # =========================
 
     def handle_update(self, update):
+
         if not update:
             return
 
@@ -189,7 +200,25 @@ class TelegramHandler:
                 pass
 
         # =========================
-        # TERMINAL COMMANDS
+        # FIRST START
+        # =========================
+
+        if text == "/start":
+
+            try:
+                self.achievements.unlock(
+                    chat_id,
+                    user_id,
+                    "first_start"
+                )
+            except Exception:
+                pass
+
+            self.main_menu(chat_id)
+            return
+
+        # =========================
+        # TERMINAL
         # =========================
 
         try:
@@ -198,7 +227,17 @@ class TelegramHandler:
                 user_id,
                 text
             ):
+                try:
+                    self.achievements.unlock(
+                        chat_id,
+                        user_id,
+                        "first_terminal"
+                    )
+                except Exception:
+                    pass
+
                 return
+
         except Exception:
             pass
 
@@ -217,19 +256,6 @@ class TelegramHandler:
             pass
 
         # =========================
-        # START
-        # =========================
-
-        if text == "/start":
-            try:
-                self.filesystem.cancel(user_id)
-            except Exception:
-                pass
-
-            self.main_menu(chat_id)
-            return
-
-        # =========================
         # HELP
         # =========================
 
@@ -246,11 +272,6 @@ class TelegramHandler:
         # =========================
 
         if text == "/new":
-            try:
-                self.filesystem.cancel(user_id)
-            except Exception:
-                pass
-
             self.main_menu(chat_id)
             return
 
@@ -265,15 +286,12 @@ class TelegramHandler:
             )
             return
 
-        if text == "🏆 Достижения":
-            self.profile.show_achievements(
-                chat_id,
-                user_id
-            )
-            return
+        # =========================
+        # ACHIEVEMENTS
+        # =========================
 
-        if text == "🔄 Обновить профиль":
-            self.profile.show_profile(
+        if text == "🏆 Достижения":
+            self.achievements.show_achievements(
                 chat_id,
                 user_id
             )
@@ -291,7 +309,7 @@ class TelegramHandler:
             return
 
         # =========================
-        # TERMINAL
+        # TERMINAL MENU
         # =========================
 
         if text == "💻 Terminal":
@@ -312,28 +330,6 @@ class TelegramHandler:
             self.terminal.command_pwd(
                 chat_id,
                 user_id
-            )
-            return
-
-        if text == "📁 mkdir":
-            self.send_message(
-                chat_id,
-                (
-                    "📁 <b>MKDIR</b>\n\n"
-                    "Введите имя папки:\n\n"
-                    "<code>documents</code>"
-                )
-            )
-            return
-
-        if text == "📄 touch":
-            self.send_message(
-                chat_id,
-                (
-                    "📄 <b>TOUCH</b>\n\n"
-                    "Введите имя файла:\n\n"
-                    "<code>example.txt</code>"
-                )
             )
             return
 
@@ -457,11 +453,14 @@ class TelegramHandler:
             )
             return
 
-        if text == "🏠 Главная":
-            self.main_menu(chat_id)
-            return
+        # =========================
+        # MAIN MENU
+        # =========================
 
-        if text == "🖥️ Главное меню":
+        if text in (
+            "🏠 Главная",
+            "🖥️ Главное меню"
+        ):
             self.main_menu(chat_id)
             return
 
