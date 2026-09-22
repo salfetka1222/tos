@@ -7,10 +7,14 @@ from database.database import Database
 
 app = Flask(__name__)
 
+# Инициализация базы данных
 database = Database()
 database.initialize()
 
+# Инициализация Telegram
 bot = TelegramBot()
+
+# Передаём bot и database в обработчик
 handler = TelegramHandler(bot, database)
 
 
