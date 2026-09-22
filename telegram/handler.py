@@ -14,7 +14,10 @@ class TelegramHandler:
         text = message.get("text", "")
         chat_id = message["chat"]["id"]
 
-        if text == "👤 Профиль":
+        if text == "/start":
+            self.show_home(chat_id)
+
+        elif text == "👤 Профиль":
             self.show_profile(chat_id, message)
 
     def show_home(self, chat_id):
@@ -51,5 +54,33 @@ class TelegramHandler:
                     "Выберите приложение:"
                 ),
                 "reply_markup": keyboard,
+            },
+        )
+
+    def show_profile(self, chat_id, message):
+        user = message.get("from", {})
+
+        user_id = user.get("id", "неизвестно")
+        username = user.get("username")
+
+        if username:
+            username = f"@{username}"
+        else:
+            username = "не установлен"
+
+        text = (
+            "👤 ПРОФИЛЬ T-OS\n\n"
+            f"🆔 ID: {user_id}\n"
+            f"👤 Username: {username}\n\n"
+            "⭐ Уровень: 1\n"
+            "✨ XP: 0\n"
+            "🪙 T-Coins: 0"
+        )
+
+        self.bot.request(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": text,
             },
         )
