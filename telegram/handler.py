@@ -3,6 +3,7 @@ from datetime import datetime
 
 from games import GamesSystem
 from core.dev import DeveloperSystem
+from core.group_os import GroupOS
 
 
 class TelegramHandler:
