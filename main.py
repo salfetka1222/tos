@@ -5,10 +5,11 @@ from database.database import Database
 
 def main():
     system = TOS()
-    users = UserManager()
-    database = Database()
 
+    database = Database()
     database.initialize()
+
+    users = UserManager(database)
 
     user = users.create_user(
         user_id=1,
@@ -27,9 +28,6 @@ def main():
     print("\n👤 Пользователь")
     print(f"ID: {user.user_id}")
     print(f"Username: @{user.username}")
-    print(f"Уровень: {user.level}")
-    print(f"XP: {user.xp}")
-    print(f"Монеты: {user.coins}")
 
 
 if __name__ == "__main__":
