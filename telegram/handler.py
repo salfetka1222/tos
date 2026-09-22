@@ -1,7 +1,26 @@
-from telegram.bot import TelegramBot
-from datetime import datetime
+import os
+import sqlite3
+from datetime import datetime, timedelta
 
+from telegram.bot import TelegramBot
 from games import GamesSystem
+
+
+# =========================================================
+# DEVELOPER CONFIG
+# =========================================================
+
+# Добавь DEVELOPER_ID в Railway Variables.
+# Пример:
+# DEVELOPER_ID = 123456789
+#
+# Сам ID сюда мне присылать не нужно.
+try:
+    DEVELOPER_ID = int(
+        os.getenv("DEVELOPER_ID", "0")
+    )
+except ValueError:
+    DEVELOPER_ID = 8063619759
 
 
 class TelegramHandler:
@@ -14,6 +33,202 @@ class TelegramHandler:
         self.file_states = {}
         self.terminal_dirs = {}
         self.command_history = {}
+
+        # Временное состояние Developer Panel
+        self.developer_states = {}
+
+        self.initialize_developer_system()
+
+    # =========================================================
+    # DEVELOPER SYSTEM
+    # =========================================================
+
+    def initialize_developer_system(self):
+        """
+        Создаёт служебные таблицы Developer Panel.
+        database.py менять не требуется.
+        """
+
+        with self.database.connect() as connection:
+
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_id INTEGER NOT NULL,
+                    target_id INTEGER,
+                    action TEXT NOT NULL,
+                    details TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS user_restrictions (
+                    user_id INTEGER PRIMARY KEY,
+                    until TIMESTAMP NOT NULL,
+                    reason TEXT DEFAULT '',
+                    created_by INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            connection.commit()
+
+    def is_developer(self, user_id):
+        return (
+            DEVELOPER_ID != 0
+            and user_id == DEVELOPER_ID
+        )
+
+    def audit(
+        self,
+        actor_id,
+        action,
+        target_id=None,
+        details=""
+    ):
+        try:
+            with self.database.connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO audit_log
+                    (actor_id, target_id, action, details)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        actor_id,
+                        target_id,
+                        action,
+                        details
+                    )
+                )
+
+                connection.commit()
+
+        except Exception:
+            # Ошибка аудита не должна ломать T-OS
+            pass
+
+    def is_restricted(self, user_id):
+        try:
+            with self.database.connect() as connection:
+
+                row = connection.execute(
+                    """
+                    SELECT until
+                    FROM user_restrictions
+                    WHERE user_id = ?
+                    """,
+                    (user_id,)
+                ).fetchone()
+
+                if not row:
+                    return False
+
+                until = datetime.fromisoformat(
+                    row[0]
+                )
+
+                if datetime.now() >= until:
+                    connection.execute(
+                        """
+                        DELETE FROM user_restrictions
+                        WHERE user_id = ?
+                        """,
+                        (user_id,)
+                    )
+
+                    connection.commit()
+
+                    return False
+
+                return True
+
+        except Exception:
+            return False
+
+    def get_restriction(self, user_id):
+        try:
+            with self.database.connect() as connection:
+
+                row = connection.execute(
+                    """
+                    SELECT
+                        user_id,
+                        until,
+                        reason,
+                        created_by,
+                        created_at
+                    FROM user_restrictions
+                    WHERE user_id = ?
+                    """,
+                    (user_id,)
+                ).fetchone()
+
+                return row
+
+        except Exception:
+            return None
+
+    def restrict_user(
+        self,
+        actor_id,
+        target_id,
+        minutes,
+        reason=""
+    ):
+        until = (
+            datetime.now()
+            + timedelta(minutes=minutes)
+        )
+
+        with self.database.connect() as connection:
+
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO user_restrictions
+                (user_id, until, reason, created_by)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    target_id,
+                    until.isoformat(),
+                    reason,
+                    actor_id
+                )
+            )
+
+            connection.commit()
+
+        self.audit(
+            actor_id,
+            "USER_RESTRICTED",
+            target_id,
+            f"{minutes} min; {reason}"
+        )
+
+    def unrestrict_user(
+        self,
+        actor_id,
+        target_id
+    ):
+        with self.database.connect() as connection:
+
+            connection.execute(
+                """
+                DELETE FROM user_restrictions
+                WHERE user_id = ?
+                """,
+                (target_id,)
+            )
+
+            connection.commit()
+
+        self.audit(
+            actor_id,
+            "USER_UNRESTRICTED",
+            target_id
+        )
 
     # =========================================================
     # UPDATE
@@ -34,15 +249,142 @@ class TelegramHandler:
         if not user_id:
             return
 
+        username = user.get("username")
+
         self.database.create_user(
             user_id,
-            user.get("username")
+            username
         )
 
         self.database.unlock_achievement(
             user_id,
             "First Login"
         )
+
+        # =====================================================
+        # RESTRICTION CHECK
+        # =====================================================
+
+        if not self.is_developer(user_id):
+
+            restriction = self.get_restriction(
+                user_id
+            )
+
+            if restriction:
+
+                until = datetime.fromisoformat(
+                    restriction["until"]
+                    if isinstance(
+                        restriction,
+                        sqlite3.Row
+                    )
+                    else restriction[1]
+                )
+
+                if datetime.now() < until:
+
+                    reason = (
+                        restriction["reason"]
+                        if isinstance(
+                            restriction,
+                            sqlite3.Row
+                        )
+                        else restriction[2]
+                    )
+
+                    self.send_message(
+                        chat_id,
+                        "🚫 ДОСТУП ОГРАНИЧЕН\n\n"
+                        f"До: {until.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        f"Причина: {reason or 'не указана'}"
+                    )
+                    return
+
+        # =====================================================
+        # DEVELOPER COMMANDS
+        # =====================================================
+
+        if text == "/dev":
+            if self.is_developer(user_id):
+                self.show_developer_panel(
+                    chat_id,
+                    user_id
+                )
+            return
+
+        if text == "/myid":
+            self.send_message(
+                chat_id,
+                f"🆔 Ваш Telegram ID: {user_id}"
+            )
+            return
+
+        # =====================================================
+        # DEVELOPER PANEL BUTTONS
+        # =====================================================
+
+        if self.is_developer(user_id):
+
+            if text == "🛡️ Developer Panel":
+                self.show_developer_panel(
+                    chat_id,
+                    user_id
+                )
+                return
+
+            if text == "📊 Статистика":
+                self.show_developer_stats(
+                    chat_id,
+                    user_id
+                )
+                return
+
+            if text == "👥 Пользователи":
+                self.show_developer_users(
+                    chat_id,
+                    user_id
+                )
+                return
+
+            if text == "🎮 Игры":
+                self.show_developer_games(
+                    chat_id,
+                    user_id
+                )
+                return
+
+            if text == "📜 Audit Log":
+                self.show_audit_log(
+                    chat_id,
+                    user_id
+                )
+                return
+
+            if text == "🚫 Ограничения":
+                self.show_restrictions(
+                    chat_id,
+                    user_id
+                )
+                return
+
+            if text == "⚙️ System Info":
+                self.show_system_info(
+                    chat_id,
+                    user_id
+                )
+                return
+
+            if text == "⬅️ Назад":
+                self.show_developer_panel(
+                    chat_id,
+                    user_id
+                )
+                return
+
+            if text == "🖥️ T-OS":
+                self.show_home(chat_id)
+                return
 
         # =====================================================
         # ACTIVE GAME
@@ -110,6 +452,7 @@ class TelegramHandler:
             return
 
         if state and state.startswith("editing:"):
+
             path = state.replace(
                 "editing:",
                 "",
@@ -127,6 +470,7 @@ class TelegramHandler:
         if state and state.startswith("opened:"):
 
             if text == "✏️ Редактировать":
+
                 path = state.replace(
                     "opened:",
                     "",
@@ -141,6 +485,7 @@ class TelegramHandler:
                 return
 
             if text == "📁 Файлы":
+
                 self.file_states.pop(
                     user_id,
                     None
@@ -169,6 +514,7 @@ class TelegramHandler:
         # =====================================================
 
         if text == "/start":
+
             self.file_states.pop(
                 user_id,
                 None
@@ -183,15 +529,20 @@ class TelegramHandler:
                 10
             )
 
-            self.show_home(chat_id)
+            self.show_home(
+                chat_id,
+                user_id
+            )
 
         elif text == "/profile":
+
             self.show_profile(
                 chat_id,
                 message
             )
 
         elif text == "/achievements":
+
             self.show_achievements(
                 chat_id,
                 user_id
@@ -202,6 +553,7 @@ class TelegramHandler:
         # =====================================================
 
         elif text == "📁 Файлы":
+
             self.file_states.pop(
                 user_id,
                 None
@@ -217,12 +569,14 @@ class TelegramHandler:
             )
 
         elif text == "📄 Создать файл":
+
             self.ask_filename(
                 chat_id,
                 user_id
             )
 
         elif text == "📂 Desktop":
+
             self.show_directory(
                 chat_id,
                 user_id,
@@ -230,6 +584,7 @@ class TelegramHandler:
             )
 
         elif text == "📂 Documents":
+
             self.show_directory(
                 chat_id,
                 user_id,
@@ -237,6 +592,7 @@ class TelegramHandler:
             )
 
         elif text == "📂 Downloads":
+
             self.show_directory(
                 chat_id,
                 user_id,
@@ -244,6 +600,7 @@ class TelegramHandler:
             )
 
         elif text == "📂 Pictures":
+
             self.show_directory(
                 chat_id,
                 user_id,
@@ -251,6 +608,7 @@ class TelegramHandler:
             )
 
         elif text == "📂 Projects":
+
             self.show_directory(
                 chat_id,
                 user_id,
@@ -258,6 +616,7 @@ class TelegramHandler:
             )
 
         elif text == "📂 Trash":
+
             self.show_directory(
                 chat_id,
                 user_id,
@@ -265,11 +624,20 @@ class TelegramHandler:
             )
 
         elif text == "📝 Заметки":
-            self.games.cancel_game(user_id)
-            self.show_notes(chat_id)
+
+            self.games.cancel_game(
+                user_id
+            )
+
+            self.show_notes(
+                chat_id
+            )
 
         elif text == "💻 Терминал":
-            self.games.cancel_game(user_id)
+
+            self.games.cancel_game(
+                user_id
+            )
 
             self.show_terminal(
                 chat_id,
@@ -277,10 +645,17 @@ class TelegramHandler:
             )
 
         elif text == "🧮 Калькулятор":
-            self.games.cancel_game(user_id)
-            self.show_calculator(chat_id)
+
+            self.games.cancel_game(
+                user_id
+            )
+
+            self.show_calculator(
+                chat_id
+            )
 
         elif text == "🎮 Игры":
+
             self.show_games(
                 chat_id,
                 user_id
@@ -291,36 +666,42 @@ class TelegramHandler:
         # =====================================================
 
         elif text == "🎲 Dice":
+
             self.start_dice(
                 chat_id,
                 user_id
             )
 
         elif text == "🔢 Guess Number":
+
             self.start_guess(
                 chat_id,
                 user_id
             )
 
         elif text == "🧠 Quiz":
+
             self.start_quiz(
                 chat_id,
                 user_id
             )
 
         elif text == "🧩 Riddles":
+
             self.start_riddle(
                 chat_id,
                 user_id
             )
 
         elif text == "⚡ Reaction":
+
             self.start_reaction(
                 chat_id,
                 user_id
             )
 
         elif text == "❌ Выйти из игры":
+
             self.games.cancel_game(
                 user_id
             )
@@ -331,11 +712,20 @@ class TelegramHandler:
             )
 
         elif text == "⚙️ Настройки":
-            self.games.cancel_game(user_id)
-            self.show_settings(chat_id)
+
+            self.games.cancel_game(
+                user_id
+            )
+
+            self.show_settings(
+                chat_id
+            )
 
         elif text == "👤 Профиль":
-            self.games.cancel_game(user_id)
+
+            self.games.cancel_game(
+                user_id
+            )
 
             self.show_profile(
                 chat_id,
@@ -343,16 +733,24 @@ class TelegramHandler:
             )
 
         elif text == "🏆 Достижения":
+
             self.show_achievements(
                 chat_id,
                 user_id
             )
 
         elif text == "📦 App Store":
-            self.games.cancel_game(user_id)
-            self.show_app_store(chat_id)
+
+            self.games.cancel_game(
+                user_id
+            )
+
+            self.show_app_store(
+                chat_id
+            )
 
         elif text == "🖥️ Главное меню":
+
             self.file_states.pop(
                 user_id,
                 None
@@ -362,9 +760,13 @@ class TelegramHandler:
                 user_id
             )
 
-            self.show_home(chat_id)
+            self.show_home(
+                chat_id,
+                user_id
+            )
 
         elif text.startswith("📄 "):
+
             filename = text[2:].strip()
 
             self.open_file(
@@ -372,6 +774,444 @@ class TelegramHandler:
                 user_id,
                 f"/home/user/Documents/{filename}"
             )
+
+    # =========================================================
+    # DEVELOPER PANEL
+    # =========================================================
+
+    def show_developer_panel(
+        self,
+        chat_id,
+        user_id
+    ):
+        if not self.is_developer(user_id):
+            return
+
+        self.audit(
+            user_id,
+            "OPEN_DEVELOPER_PANEL"
+        )
+
+        keyboard = [
+            [
+                {"text": "📊 Статистика"},
+                {"text": "👥 Пользователи"}
+            ],
+            [
+                {"text": "🎮 Игры"},
+                {"text": "📜 Audit Log"}
+            ],
+            [
+                {"text": "🚫 Ограничения"},
+                {"text": "⚙️ System Info"}
+            ],
+            [
+                {"text": "🖥️ T-OS"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            "🛡️ T-OS DEVELOPER PANEL\n\n"
+            "Добро пожаловать в системный центр "
+            "разработчика.\n\n"
+            "Здесь находятся инструменты управления "
+            "и диагностики T-OS.",
+            keyboard
+        )
+
+    def show_developer_stats(
+        self,
+        chat_id,
+        user_id
+    ):
+        if not self.is_developer(user_id):
+            return
+
+        with self.database.connect() as connection:
+
+            users = connection.execute(
+                "SELECT COUNT(*) FROM users"
+            ).fetchone()[0]
+
+            commands = connection.execute(
+                "SELECT COALESCE(SUM(commands), 0) FROM users"
+            ).fetchone()[0]
+
+            games_played = connection.execute(
+                "SELECT COALESCE(SUM(games_played), 0) FROM users"
+            ).fetchone()[0]
+
+            games_won = connection.execute(
+                "SELECT COALESCE(SUM(games_won), 0) FROM users"
+            ).fetchone()[0]
+
+            xp = connection.execute(
+                "SELECT COALESCE(SUM(xp), 0) FROM users"
+            ).fetchone()[0]
+
+            coins = connection.execute(
+                "SELECT COALESCE(SUM(coins), 0) FROM users"
+            ).fetchone()[0]
+
+            audit_count = connection.execute(
+                "SELECT COUNT(*) FROM audit_log"
+            ).fetchone()[0]
+
+        self.audit(
+            user_id,
+            "VIEW_STATISTICS"
+        )
+
+        keyboard = [
+            [
+                {"text": "⬅️ Назад"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            "📊 T-OS STATISTICS\n\n"
+            f"👥 Пользователей: {users}\n"
+            f"⌨️ Команд: {commands}\n"
+            f"🎮 Игр сыграно: {games_played}\n"
+            f"🏆 Побед: {games_won}\n"
+            f"✨ Всего XP: {xp}\n"
+            f"🪙 T-Coins: {coins}\n"
+            f"📜 Audit events: {audit_count}",
+            keyboard
+        )
+
+    def show_developer_users(
+        self,
+        chat_id,
+        user_id
+    ):
+        if not self.is_developer(user_id):
+            return
+
+        with self.database.connect() as connection:
+
+            rows = connection.execute(
+                """
+                SELECT
+                    user_id,
+                    username,
+                    level,
+                    xp,
+                    coins,
+                    commands,
+                    games_played,
+                    games_won
+                FROM users
+                ORDER BY xp DESC
+                LIMIT 20
+                """
+            ).fetchall()
+
+        self.audit(
+            user_id,
+            "VIEW_USERS"
+        )
+
+        lines = [
+            "👥 T-OS USERS",
+            "",
+            "Показаны первые 20 пользователей:",
+            ""
+        ]
+
+        if not rows:
+            lines.append(
+                "Пользователей пока нет."
+            )
+
+        for index, row in enumerate(
+            rows,
+            start=1
+        ):
+            username = (
+                f"@{row['username']}"
+                if row["username"]
+                else "без username"
+            )
+
+            restriction = self.get_restriction(
+                row["user_id"]
+            )
+
+            status = (
+                "🔴 Restricted"
+                if restriction
+                else "🟢 Active"
+            )
+
+            lines.append(
+                f"{index}. {status}\n"
+                f"   🆔 {row['user_id']}\n"
+                f"   👤 {username}\n"
+                f"   ⭐ Lv.{row['level']} | XP {row['xp']}\n"
+                f"   🎮 {row['games_played']} игр | "
+                f"🏆 {row['games_won']} побед"
+            )
+
+        keyboard = [
+            [
+                {"text": "⬅️ Назад"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            "\n".join(lines),
+            keyboard
+        )
+
+    def show_developer_games(
+        self,
+        chat_id,
+        user_id
+    ):
+        if not self.is_developer(user_id):
+            return
+
+        with self.database.connect() as connection:
+
+            row = connection.execute(
+                """
+                SELECT
+                    COALESCE(SUM(games_played), 0),
+                    COALESCE(SUM(games_won), 0)
+                FROM users
+                """
+            ).fetchone()
+
+        played = row[0]
+        won = row[1]
+
+        winrate = (
+            (won / played) * 100
+            if played
+            else 0
+        )
+
+        self.audit(
+            user_id,
+            "VIEW_GAME_STATS"
+        )
+
+        keyboard = [
+            [
+                {"text": "⬅️ Назад"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            "🎮 GAME SYSTEM\n\n"
+            f"🎮 Игр сыграно: {played}\n"
+            f"🏆 Побед: {won}\n"
+            f"📈 Побед: {winrate:.1f}%\n\n"
+            "Доступные игры:\n"
+            "🎲 Dice\n"
+            "🔢 Guess Number\n"
+            "🧠 Quiz\n"
+            "🧩 Riddles\n"
+            "⚡ Reaction",
+            keyboard
+        )
+
+    def show_audit_log(
+        self,
+        chat_id,
+        user_id
+    ):
+        if not self.is_developer(user_id):
+            return
+
+        with self.database.connect() as connection:
+
+            rows = connection.execute(
+                """
+                SELECT
+                    actor_id,
+                    target_id,
+                    action,
+                    details,
+                    created_at
+                FROM audit_log
+                ORDER BY id DESC
+                LIMIT 15
+                """
+            ).fetchall()
+
+        lines = [
+            "📜 T-OS AUDIT LOG",
+            "",
+            "Последние 15 событий:",
+            ""
+        ]
+
+        if not rows:
+            lines.append(
+                "Audit Log пока пуст."
+            )
+
+        for row in rows:
+
+            target = (
+                f" → {row['target_id']}"
+                if row["target_id"]
+                else ""
+            )
+
+            details = (
+                f"\n   {row['details']}"
+                if row["details"]
+                else ""
+            )
+
+            lines.append(
+                f"🕒 {row['created_at']}\n"
+                f"👤 {row['actor_id']}{target}\n"
+                f"🔧 {row['action']}"
+                f"{details}\n"
+            )
+
+        self.audit(
+            user_id,
+            "VIEW_AUDIT_LOG"
+        )
+
+        keyboard = [
+            [
+                {"text": "⬅️ Назад"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            "\n".join(lines),
+            keyboard
+        )
+
+    def show_restrictions(
+        self,
+        chat_id,
+        user_id
+    ):
+        if not self.is_developer(user_id):
+            return
+
+        with self.database.connect() as connection:
+
+            rows = connection.execute(
+                """
+                SELECT
+                    user_id,
+                    until,
+                    reason
+                FROM user_restrictions
+                ORDER BY until ASC
+                """
+            ).fetchall()
+
+        lines = [
+            "🚫 USER RESTRICTIONS",
+            ""
+        ]
+
+        if not rows:
+            lines.append(
+                "Активных ограничений нет."
+            )
+
+        for row in rows:
+
+            lines.append(
+                f"🔴 {row['user_id']}\n"
+                f"До: {row['until']}\n"
+                f"Причина: "
+                f"{row['reason'] or 'не указана'}\n"
+            )
+
+        lines.extend([
+            "",
+            "Управление ограничениями будет "
+            "расширено в следующей версии."
+        ])
+
+        self.audit(
+            user_id,
+            "VIEW_RESTRICTIONS"
+        )
+
+        keyboard = [
+            [
+                {"text": "⬅️ Назад"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            "\n".join(lines),
+            keyboard
+        )
+
+    def show_system_info(
+        self,
+        chat_id,
+        user_id
+    ):
+        if not self.is_developer(user_id):
+            return
+
+        with self.database.connect() as connection:
+
+            tables = connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                ORDER BY name
+                """
+            ).fetchall()
+
+        table_names = [
+            row["name"]
+            for row in tables
+        ]
+
+        self.audit(
+            user_id,
+            "VIEW_SYSTEM_INFO"
+        )
+
+        keyboard = [
+            [
+                {"text": "⬅️ Назад"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            "⚙️ T-OS SYSTEM INFO\n\n"
+            "🖥️ System: T-OS\n"
+            "📦 Version: 0.1\n"
+            "🧠 Core: TOS-Core\n"
+            "💻 Shell: T-Shell\n"
+            "📁 Filesystem: TFS\n"
+            "🗄️ Database: SQLite\n"
+            "🌐 Platform: Telegram\n"
+            "🚂 Runtime: Railway\n"
+            "🟢 Status: ONLINE\n\n"
+            "SQLite tables:\n"
+            + "\n".join(
+                f"• {name}"
+                for name in table_names
+            ),
+            keyboard
+        )
 
     # =========================================================
     # TELEGRAM
@@ -403,7 +1243,11 @@ class TelegramHandler:
     # HOME
     # =========================================================
 
-    def show_home(self, chat_id):
+    def show_home(
+        self,
+        chat_id,
+        user_id=None
+    ):
         keyboard = [
             [
                 {"text": "📁 Файлы"},
@@ -425,6 +1269,14 @@ class TelegramHandler:
                 {"text": "📦 App Store"}
             ]
         ]
+
+        if (
+            user_id is not None
+            and self.is_developer(user_id)
+        ):
+            keyboard.append([
+                {"text": "🛡️ Developer Panel"}
+            ])
 
         self.send_message(
             chat_id,
@@ -456,8 +1308,14 @@ class TelegramHandler:
                 file_type="directory"
             )
 
-    def show_files(self, chat_id, user_id):
-        self.initialize_filesystem(user_id)
+    def show_files(
+        self,
+        chat_id,
+        user_id
+    ):
+        self.initialize_filesystem(
+            user_id
+        )
 
         keyboard = [
             [
@@ -488,8 +1346,14 @@ class TelegramHandler:
             keyboard
         )
 
-    def ask_filename(self, chat_id, user_id):
-        self.file_states[user_id] = "waiting_filename"
+    def ask_filename(
+        self,
+        chat_id,
+        user_id
+    ):
+        self.file_states[user_id] = (
+            "waiting_filename"
+        )
 
         self.send_message(
             chat_id,
@@ -802,7 +1666,10 @@ class TelegramHandler:
     # TERMINAL CORE
     # =========================================================
 
-    def get_terminal_dir(self, user_id):
+    def get_terminal_dir(
+        self,
+        user_id
+    ):
         return self.terminal_dirs.get(
             user_id,
             "/home/user"
@@ -939,77 +1806,50 @@ class TelegramHandler:
             user_id
         )
 
-        # =====================================================
-        # HELP
-        # =====================================================
-
         if command == "help":
             self.terminal_output(
                 chat_id,
                 "💻 T-OS TERMINAL 2.0\n\n"
-
                 "$ help\n"
                 "Показать список команд.\n\n"
-
                 "$ pwd\n"
                 "Показать текущую папку.\n\n"
-
                 "$ ls\n"
                 "Показать содержимое папки.\n\n"
-
                 "$ cd <dir>\n"
                 "Перейти в папку.\n\n"
-
                 "$ touch <file>\n"
                 "Создать файл.\n\n"
-
                 "$ mkdir <dir>\n"
                 "Создать папку.\n\n"
-
                 "$ cat <file>\n"
                 "Показать содержимое файла.\n\n"
-
                 "$ write <file> <text>\n"
                 "Записать текст в файл.\n\n"
-
                 "$ echo <text>\n"
                 "Вывести текст.\n\n"
-
                 "$ rm <file>\n"
                 "Удалить файл.\n\n"
-
                 "$ mv <src> <dst>\n"
                 "Переместить файл.\n\n"
-
                 "$ cp <src> <dst>\n"
                 "Скопировать файл.\n\n"
-
                 "$ tree\n"
                 "Показать дерево файлов.\n\n"
-
                 "$ history\n"
                 "Показать историю команд.\n\n"
-
                 "$ whoami\n"
                 "Показать текущего пользователя.\n\n"
-
                 "$ date\n"
                 "Показать дату и время.\n\n"
-
                 "$ neofetch\n"
                 "Информация о T-OS.\n\n"
-
                 "$ clear\n"
                 "Очистить экран.\n\n"
-
                 "Все команды работают только "
                 "в виртуальной файловой системе."
             )
             return
-
-        # =====================================================
-        # PWD
-        # =====================================================
 
         if command == "pwd":
             self.terminal_output(
@@ -1018,20 +1858,12 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # WHOAMI
-        # =====================================================
-
         if command == "whoami":
             self.terminal_output(
                 chat_id,
                 f"tos-user-{user_id}"
             )
             return
-
-        # =====================================================
-        # DATE
-        # =====================================================
 
         if command == "date":
             now = datetime.now()
@@ -1044,20 +1876,12 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # CLEAR
-        # =====================================================
-
         if command == "clear":
             self.terminal_output(
                 chat_id,
                 "🧹 Terminal cleared."
             )
             return
-
-        # =====================================================
-        # LS
-        # =====================================================
 
         if command == "ls":
 
@@ -1127,10 +1951,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # CD
-        # =====================================================
-
         if command == "cd":
 
             target = (
@@ -1173,10 +1993,6 @@ class TelegramHandler:
                 f"📍 {new_dir}"
             )
             return
-
-        # =====================================================
-        # TOUCH
-        # =====================================================
 
         if command == "touch":
 
@@ -1232,10 +2048,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # MKDIR
-        # =====================================================
-
         if command == "mkdir":
 
             if len(args) != 1:
@@ -1289,10 +2101,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # CAT
-        # =====================================================
-
         if command == "cat":
 
             if len(args) != 1:
@@ -1335,10 +2143,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # WRITE
-        # =====================================================
-
         if command == "write":
 
             if len(args) < 2:
@@ -1350,10 +2154,7 @@ class TelegramHandler:
                 return
 
             filename = args[0]
-
-            content = " ".join(
-                args[1:]
-            )
+            content = " ".join(args[1:])
 
             path = self.normalize_path(
                 current_dir,
@@ -1397,10 +2198,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # ECHO
-        # =====================================================
-
         if command == "echo":
 
             self.terminal_output(
@@ -1408,10 +2205,6 @@ class TelegramHandler:
                 " ".join(args)
             )
             return
-
-        # =====================================================
-        # RM
-        # =====================================================
 
         if command == "rm":
 
@@ -1457,10 +2250,6 @@ class TelegramHandler:
                 f"🗑️ Удалён: {args[0]}"
             )
             return
-
-        # =====================================================
-        # CP
-        # =====================================================
 
         if command == "cp":
 
@@ -1529,10 +2318,6 @@ class TelegramHandler:
                 "✨ +5 XP"
             )
             return
-
-        # =====================================================
-        # MV
-        # =====================================================
 
         if command == "mv":
 
@@ -1607,10 +2392,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # TREE
-        # =====================================================
-
         if command == "tree":
 
             root = current_dir
@@ -1657,10 +2438,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # HISTORY
-        # =====================================================
-
         if command == "history":
 
             history = self.command_history.get(
@@ -1691,10 +2468,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # NEOFETCH
-        # =====================================================
-
         if command == "neofetch":
 
             self.terminal_output(
@@ -1716,10 +2489,6 @@ class TelegramHandler:
                 "Status: ONLINE 🟢"
             )
             return
-
-        # =====================================================
-        # UNKNOWN
-        # =====================================================
 
         self.terminal_output(
             chat_id,
@@ -1756,7 +2525,9 @@ class TelegramHandler:
 
             children.append(file)
 
-        for index, file in enumerate(children):
+        for index, file in enumerate(
+            children
+        ):
             path = file[1]
             file_type = file[2]
 
@@ -1773,6 +2544,7 @@ class TelegramHandler:
             name = path.split("/")[-1]
 
             if file_type == "directory":
+
                 lines.append(
                     prefix
                     + branch
@@ -1794,6 +2566,7 @@ class TelegramHandler:
                 )
 
             else:
+
                 lines.append(
                     prefix
                     + branch
@@ -1891,11 +2664,9 @@ class TelegramHandler:
             "👤 ПРОФИЛЬ T-OS\n\n"
             f"🆔 ID: {user_id}\n"
             f"👤 Username: {username}\n\n"
-
             f"⭐ Уровень: {user['level']}\n"
             f"✨ XP: {user['xp']}\n"
             f"🪙 T-Coins: {user['coins']}\n\n"
-
             "📊 СТАТИСТИКА\n"
             f"⌨️ Команд: {user['commands']}\n"
             f"🎮 Игр сыграно: {user['games_played']}\n"
@@ -1937,6 +2708,7 @@ class TelegramHandler:
         unlocked = set()
 
         for achievement in achievements:
+
             name = achievement["achievement"]
 
             unlocked.add(name)
@@ -1961,7 +2733,9 @@ class TelegramHandler:
         ]
 
         for name in all_achievements:
+
             if name not in unlocked:
+
                 lines.append(
                     "🔒 "
                     + achievement_names.get(
@@ -1989,7 +2763,10 @@ class TelegramHandler:
     # NOTES
     # =========================================================
 
-    def show_notes(self, chat_id):
+    def show_notes(
+        self,
+        chat_id
+    ):
         self.send_message(
             chat_id,
             "📝 ЗАМЕТКИ\n\n"
@@ -2000,7 +2777,10 @@ class TelegramHandler:
     # CALCULATOR
     # =========================================================
 
-    def show_calculator(self, chat_id):
+    def show_calculator(
+        self,
+        chat_id
+    ):
         self.send_message(
             chat_id,
             "🧮 КАЛЬКУЛЯТОР\n\n"
@@ -2181,7 +2961,10 @@ class TelegramHandler:
     # SETTINGS
     # =========================================================
 
-    def show_settings(self, chat_id):
+    def show_settings(
+        self,
+        chat_id
+    ):
         self.send_message(
             chat_id,
             "⚙️ НАСТРОЙКИ T-OS\n\n"
@@ -2194,7 +2977,10 @@ class TelegramHandler:
     # APP STORE
     # =========================================================
 
-    def show_app_store(self, chat_id):
+    def show_app_store(
+        self,
+        chat_id
+    ):
         self.send_message(
             chat_id,
             "📦 T-OS APP STORE\n\n"
