@@ -1,12 +1,15 @@
 from telegram.bot import TelegramBot
+from datetime import datetime
 
 
 class TelegramHandler:
     def __init__(self, bot, database):
         self.bot = bot
         self.database = database
+
         self.file_states = {}
         self.terminal_dirs = {}
+        self.command_history = {}
 
     def handle_update(self, update):
         message = update.get("message")
@@ -26,14 +29,23 @@ class TelegramHandler:
                 user.get("username")
             )
 
+        # -------------------------
+        # FILE STATES
+        # -------------------------
+
         state = self.file_states.get(user_id)
 
         if state == "waiting_filename":
-            self.create_new_file(chat_id, user_id, text)
+            self.create_new_file(
+                chat_id,
+                user_id,
+                text
+            )
             return
 
         if state and state.startswith("editing:"):
             path = state.replace("editing:", "", 1)
+
             self.save_file_content(
                 chat_id,
                 user_id,
@@ -42,7 +54,6 @@ class TelegramHandler:
             )
             return
 
-        # Работа открытого файла
         if state and state.startswith("opened:"):
 
             if text == "✏️ Редактировать":
@@ -60,7 +71,10 @@ class TelegramHandler:
                 self.show_files(chat_id, user_id)
                 return
 
-        # Terminal
+        # -------------------------
+        # TERMINAL
+        # -------------------------
+
         if text.startswith("$"):
             self.handle_terminal(
                 chat_id,
@@ -69,7 +83,10 @@ class TelegramHandler:
             )
             return
 
-        # Главное меню
+        # -------------------------
+        # MENU
+        # -------------------------
+
         if text == "/start":
             self.file_states.pop(user_id, None)
             self.show_home(chat_id)
@@ -127,7 +144,10 @@ class TelegramHandler:
             self.show_notes(chat_id)
 
         elif text == "💻 Терминал":
-            self.show_terminal(chat_id, user_id)
+            self.show_terminal(
+                chat_id,
+                user_id
+            )
 
         elif text == "🧮 Калькулятор":
             self.show_calculator(chat_id)
@@ -139,7 +159,10 @@ class TelegramHandler:
             self.show_settings(chat_id)
 
         elif text == "👤 Профиль":
-            self.show_profile(chat_id, message)
+            self.show_profile(
+                chat_id,
+                message
+            )
 
         elif text == "📦 App Store":
             self.show_app_store(chat_id)
@@ -157,6 +180,10 @@ class TelegramHandler:
                 f"/home/user/Documents/{filename}"
             )
 
+    # =========================================================
+    # TELEGRAM
+    # =========================================================
+
     def send_message(self, chat_id, text, keyboard=None):
         data = {
             "chat_id": chat_id,
@@ -169,11 +196,14 @@ class TelegramHandler:
                 "resize_keyboard": True
             }
 
-        self.bot.request("sendMessage", data)
+        self.bot.request(
+            "sendMessage",
+            data
+        )
 
-    # =========================
+    # =========================================================
     # HOME
-    # =========================
+    # =========================================================
 
     def show_home(self, chat_id):
         keyboard = [
@@ -204,9 +234,9 @@ class TelegramHandler:
             keyboard
         )
 
-    # =========================
+    # =========================================================
     # FILE SYSTEM
-    # =========================
+    # =========================================================
 
     def initialize_filesystem(self, user_id):
         folders = [
@@ -301,7 +331,10 @@ class TelegramHandler:
 
         path = f"/home/user/Documents/{filename}"
 
-        if self.database.path_exists(user_id, path):
+        if self.database.path_exists(
+            user_id,
+            path
+        ):
             self.file_states.pop(user_id, None)
 
             self.send_message(
@@ -355,16 +388,22 @@ class TelegramHandler:
             filename = path.split("/")[-1]
 
             if file_type == "directory":
-                lines.append(f"📂 {filename}")
+                lines.append(
+                    f"📂 {filename}"
+                )
             else:
-                lines.append(f"📄 {filename}")
+                lines.append(
+                    f"📄 {filename}"
+                )
 
                 keyboard.append([
                     {"text": f"📄 {filename}"}
                 ])
 
         if not found:
-            lines.append("Папка пуста.")
+            lines.append(
+                "Папка пуста."
+            )
 
         keyboard.append([
             {"text": "📁 Файлы"},
@@ -408,10 +447,10 @@ class TelegramHandler:
             chat_id,
             f"📄 {filename}\n\n"
             f"📍 {path}\n\n"
-            f"Содержимое:\n"
-            f"────────────\n"
+            "Содержимое:\n"
+            "────────────\n"
             f"{content}\n"
-            f"────────────",
+            "────────────",
             keyboard
         )
 
@@ -422,7 +461,10 @@ class TelegramHandler:
         )
 
         if not file:
-            self.file_states.pop(user_id, None)
+            self.file_states.pop(
+                user_id,
+                None
+            )
 
             self.send_message(
                 chat_id,
@@ -443,14 +485,23 @@ class TelegramHandler:
             "⚠️ Старое содержимое будет заменено."
         )
 
-    def save_file_content(self, chat_id, user_id, path, content):
+    def save_file_content(
+        self,
+        chat_id,
+        user_id,
+        path,
+        content
+    ):
         file = self.database.get_file(
             user_id,
             path
         )
 
         if not file:
-            self.file_states.pop(user_id, None)
+            self.file_states.pop(
+                user_id,
+                None
+            )
 
             self.send_message(
                 chat_id,
@@ -464,7 +515,10 @@ class TelegramHandler:
             content
         )
 
-        self.file_states.pop(user_id, None)
+        self.file_states.pop(
+            user_id,
+            None
+        )
 
         filename = path.split("/")[-1]
 
@@ -475,9 +529,9 @@ class TelegramHandler:
             f"📍 {path}"
         )
 
-    # =========================
-    # TERMINAL
-    # =========================
+    # =========================================================
+    # TERMINAL CORE
+    # =========================================================
 
     def get_terminal_dir(self, user_id):
         return self.terminal_dirs.get(
@@ -485,11 +539,18 @@ class TelegramHandler:
             "/home/user"
         )
 
+    def set_terminal_dir(self, user_id, path):
+        self.terminal_dirs[user_id] = path
+
     def normalize_path(self, current_dir, target):
         if target.startswith("/"):
             path = target
         else:
-            path = current_dir.rstrip("/") + "/" + target
+            path = (
+                current_dir.rstrip("/")
+                + "/"
+                + target
+            )
 
         parts = []
 
@@ -518,6 +579,19 @@ class TelegramHandler:
             text
         )
 
+    def add_history(self, user_id, command):
+        if user_id not in self.command_history:
+            self.command_history[user_id] = []
+
+        self.command_history[user_id].append(
+            command
+        )
+
+        # Максимум 50 последних команд
+        self.command_history[user_id] = (
+            self.command_history[user_id][-50:]
+        )
+
     def handle_terminal(self, chat_id, user_id, text):
         command_line = text.strip()
 
@@ -529,38 +603,101 @@ class TelegramHandler:
         if not command_line:
             self.terminal_output(
                 chat_id,
-                "T-OS Terminal\n\nВведите $ help"
+                "T-OS Terminal\n\n"
+                "Введите $ help"
             )
             return
 
+        self.add_history(
+            user_id,
+            command_line
+        )
+
         parts = command_line.split()
+
         command = parts[0].lower()
         args = parts[1:]
 
-        current_dir = self.get_terminal_dir(user_id)
+        current_dir = self.get_terminal_dir(
+            user_id
+        )
 
-        self.initialize_filesystem(user_id)
+        self.initialize_filesystem(
+            user_id
+        )
 
-        # $ help
+        # =====================================================
+        # HELP
+        # =====================================================
+
         if command == "help":
             self.terminal_output(
                 chat_id,
-                "💻 T-OS TERMINAL\n\n"
-                "$ help     — список команд\n"
-                "$ pwd      — текущая папка\n"
-                "$ ls       — список файлов\n"
-                "$ cd       — перейти в папку\n"
-                "$ touch    — создать файл\n"
-                "$ mkdir    — создать папку\n"
-                "$ cat      — показать файл\n"
-                "$ rm       — удалить файл\n"
-                "$ clear    — очистить экран\n\n"
-                "Все операции выполняются только "
-                "в виртуальной файловой системе T-OS."
+                "💻 T-OS TERMINAL 2.0\n\n"
+
+                "$ help\n"
+                "Показать список команд.\n\n"
+
+                "$ pwd\n"
+                "Показать текущую папку.\n\n"
+
+                "$ ls\n"
+                "Показать содержимое папки.\n\n"
+
+                "$ cd <dir>\n"
+                "Перейти в папку.\n\n"
+
+                "$ touch <file>\n"
+                "Создать файл.\n\n"
+
+                "$ mkdir <dir>\n"
+                "Создать папку.\n\n"
+
+                "$ cat <file>\n"
+                "Показать содержимое файла.\n\n"
+
+                "$ write <file> <text>\n"
+                "Записать текст в файл.\n\n"
+
+                "$ echo <text>\n"
+                "Вывести текст.\n\n"
+
+                "$ rm <file>\n"
+                "Удалить файл.\n\n"
+
+                "$ mv <src> <dst>\n"
+                "Переместить файл.\n\n"
+
+                "$ cp <src> <dst>\n"
+                "Скопировать файл.\n\n"
+
+                "$ tree\n"
+                "Показать дерево файлов.\n\n"
+
+                "$ history\n"
+                "Показать историю команд.\n\n"
+
+                "$ whoami\n"
+                "Показать текущего пользователя.\n\n"
+
+                "$ date\n"
+                "Показать дату и время.\n\n"
+
+                "$ neofetch\n"
+                "Информация о T-OS.\n\n"
+
+                "$ clear\n"
+                "Очистить экран.\n\n"
+
+                "Все команды работают только "
+                "в виртуальной файловой системе."
             )
             return
 
-        # $ pwd
+        # =====================================================
+        # PWD
+        # =====================================================
+
         if command == "pwd":
             self.terminal_output(
                 chat_id,
@@ -568,19 +705,79 @@ class TelegramHandler:
             )
             return
 
-        # $ clear
-        if command == "clear":
+        # =====================================================
+        # WHOAMI
+        # =====================================================
+
+        if command == "whoami":
             self.terminal_output(
                 chat_id,
-                "🧹 T-OS Terminal очищен."
+                f"tos-user-{user_id}"
             )
             return
 
-        # $ ls
+        # =====================================================
+        # DATE
+        # =====================================================
+
+        if command == "date":
+            now = datetime.now()
+
+            self.terminal_output(
+                chat_id,
+                now.strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            )
+            return
+
+        # =====================================================
+        # CLEAR
+        # =====================================================
+
+        if command == "clear":
+            self.terminal_output(
+                chat_id,
+                "🧹 Terminal cleared."
+            )
+            return
+
+        # =====================================================
+        # LS
+        # =====================================================
+
         if command == "ls":
+
+            directory = current_dir
+
+            if args:
+                directory = self.normalize_path(
+                    current_dir,
+                    args[0]
+                )
+
+            directory_file = self.database.get_file(
+                user_id,
+                directory
+            )
+
+            if not directory_file:
+                self.terminal_output(
+                    chat_id,
+                    f"ls: нет такой папки: {directory}"
+                )
+                return
+
+            if directory_file[2] != "directory":
+                self.terminal_output(
+                    chat_id,
+                    f"ls: это не папка: {directory}"
+                )
+                return
+
             files = self.database.get_files(
                 user_id,
-                current_dir
+                directory
             )
 
             output = []
@@ -589,18 +786,27 @@ class TelegramHandler:
                 path = file[1]
                 file_type = file[2]
 
-                if path.count("/") != current_dir.count("/") + 1:
+                if (
+                    path.count("/")
+                    != directory.count("/") + 1
+                ):
                     continue
 
                 filename = path.split("/")[-1]
 
                 if file_type == "directory":
-                    output.append(f"📂 {filename}/")
+                    output.append(
+                        f"📂 {filename}/"
+                    )
                 else:
-                    output.append(f"📄 {filename}")
+                    output.append(
+                        f"📄 {filename}"
+                    )
 
             if not output:
-                output.append("(пусто)")
+                output.append(
+                    "(пусто)"
+                )
 
             self.terminal_output(
                 chat_id,
@@ -608,12 +814,17 @@ class TelegramHandler:
             )
             return
 
-        # $ cd
+        # =====================================================
+        # CD
+        # =====================================================
+
         if command == "cd":
-            if not args:
-                target = "/home/user"
-            else:
-                target = args[0]
+
+            target = (
+                args[0]
+                if args
+                else "/home/user"
+            )
 
             new_dir = self.normalize_path(
                 current_dir,
@@ -628,18 +839,21 @@ class TelegramHandler:
             if not file:
                 self.terminal_output(
                     chat_id,
-                    f"❌ cd: папка не найдена: {new_dir}"
+                    f"cd: папка не найдена: {new_dir}"
                 )
                 return
 
             if file[2] != "directory":
                 self.terminal_output(
                     chat_id,
-                    f"❌ cd: это не папка: {new_dir}"
+                    f"cd: это не папка: {new_dir}"
                 )
                 return
 
-            self.terminal_dirs[user_id] = new_dir
+            self.set_terminal_dir(
+                user_id,
+                new_dir
+            )
 
             self.terminal_output(
                 chat_id,
@@ -647,12 +861,17 @@ class TelegramHandler:
             )
             return
 
-        # $ touch filename
+        # =====================================================
+        # TOUCH
+        # =====================================================
+
         if command == "touch":
+
             if len(args) != 1:
                 self.terminal_output(
                     chat_id,
-                    "Использование:\n$ touch filename"
+                    "Использование:\n"
+                    "$ touch filename"
                 )
                 return
 
@@ -665,7 +884,11 @@ class TelegramHandler:
                 )
                 return
 
-            path = current_dir.rstrip("/") + "/" + filename
+            path = (
+                current_dir.rstrip("/")
+                + "/"
+                + filename
+            )
 
             if self.database.path_exists(
                 user_id,
@@ -673,7 +896,7 @@ class TelegramHandler:
             ):
                 self.terminal_output(
                     chat_id,
-                    "❌ Такой файл или папка уже существует."
+                    "❌ Такой объект уже существует."
                 )
                 return
 
@@ -690,12 +913,17 @@ class TelegramHandler:
             )
             return
 
-        # $ mkdir dirname
+        # =====================================================
+        # MKDIR
+        # =====================================================
+
         if command == "mkdir":
+
             if len(args) != 1:
                 self.terminal_output(
                     chat_id,
-                    "Использование:\n$ mkdir dirname"
+                    "Использование:\n"
+                    "$ mkdir dirname"
                 )
                 return
 
@@ -708,7 +936,11 @@ class TelegramHandler:
                 )
                 return
 
-            path = current_dir.rstrip("/") + "/" + dirname
+            path = (
+                current_dir.rstrip("/")
+                + "/"
+                + dirname
+            )
 
             if self.database.path_exists(
                 user_id,
@@ -716,7 +948,7 @@ class TelegramHandler:
             ):
                 self.terminal_output(
                     chat_id,
-                    "❌ Такой файл или папка уже существует."
+                    "❌ Такой объект уже существует."
                 )
                 return
 
@@ -732,12 +964,17 @@ class TelegramHandler:
             )
             return
 
-        # $ cat filename
+        # =====================================================
+        # CAT
+        # =====================================================
+
         if command == "cat":
+
             if len(args) != 1:
                 self.terminal_output(
                     chat_id,
-                    "Использование:\n$ cat filename"
+                    "Использование:\n"
+                    "$ cat filename"
                 )
                 return
 
@@ -754,14 +991,14 @@ class TelegramHandler:
             if not file:
                 self.terminal_output(
                     chat_id,
-                    f"❌ cat: файл не найден: {args[0]}"
+                    f"cat: файл не найден: {args[0]}"
                 )
                 return
 
             if file[2] != "file":
                 self.terminal_output(
                     chat_id,
-                    "❌ cat: это папка."
+                    "cat: это папка."
                 )
                 return
 
@@ -773,12 +1010,85 @@ class TelegramHandler:
             )
             return
 
-        # $ rm filename
+        # =====================================================
+        # WRITE
+        # =====================================================
+
+        if command == "write":
+
+            if len(args) < 2:
+                self.terminal_output(
+                    chat_id,
+                    "Использование:\n"
+                    "$ write filename text"
+                )
+                return
+
+            filename = args[0]
+
+            content = " ".join(
+                args[1:]
+            )
+
+            path = self.normalize_path(
+                current_dir,
+                filename
+            )
+
+            file = self.database.get_file(
+                user_id,
+                path
+            )
+
+            if not file:
+                self.terminal_output(
+                    chat_id,
+                    "❌ Файл не найден."
+                )
+                return
+
+            if file[2] != "file":
+                self.terminal_output(
+                    chat_id,
+                    "❌ Это папка."
+                )
+                return
+
+            self.database.update_file(
+                user_id,
+                path,
+                content
+            )
+
+            self.terminal_output(
+                chat_id,
+                "✅ Файл записан."
+            )
+            return
+
+        # =====================================================
+        # ECHO
+        # =====================================================
+
+        if command == "echo":
+
+            self.terminal_output(
+                chat_id,
+                " ".join(args)
+            )
+            return
+
+        # =====================================================
+        # RM
+        # =====================================================
+
         if command == "rm":
+
             if len(args) != 1:
                 self.terminal_output(
                     chat_id,
-                    "Использование:\n$ rm filename"
+                    "Использование:\n"
+                    "$ rm filename"
                 )
                 return
 
@@ -795,14 +1105,14 @@ class TelegramHandler:
             if not file:
                 self.terminal_output(
                     chat_id,
-                    f"❌ rm: файл не найден: {args[0]}"
+                    "❌ Объект не найден."
                 )
                 return
 
             if file[2] == "directory":
                 self.terminal_output(
                     chat_id,
-                    "❌ rm: удаление папок пока не поддерживается."
+                    "❌ Удаление папок пока запрещено."
                 )
                 return
 
@@ -817,19 +1127,332 @@ class TelegramHandler:
             )
             return
 
-        # неизвестная команда
+        # =====================================================
+        # CP
+        # =====================================================
+
+        if command == "cp":
+
+            if len(args) != 2:
+                self.terminal_output(
+                    chat_id,
+                    "Использование:\n"
+                    "$ cp source destination"
+                )
+                return
+
+            source = self.normalize_path(
+                current_dir,
+                args[0]
+            )
+
+            destination = self.normalize_path(
+                current_dir,
+                args[1]
+            )
+
+            source_file = self.database.get_file(
+                user_id,
+                source
+            )
+
+            if not source_file:
+                self.terminal_output(
+                    chat_id,
+                    "❌ Исходный файл не найден."
+                )
+                return
+
+            if source_file[2] != "file":
+                self.terminal_output(
+                    chat_id,
+                    "❌ Копирование папок пока не поддерживается."
+                )
+                return
+
+            if self.database.path_exists(
+                user_id,
+                destination
+            ):
+                self.terminal_output(
+                    chat_id,
+                    "❌ Файл назначения уже существует."
+                )
+                return
+
+            self.database.create_file(
+                user_id,
+                destination,
+                file_type="file",
+                content=source_file[3] or ""
+            )
+
+            self.terminal_output(
+                chat_id,
+                f"📋 Скопировано: {args[0]} → {args[1]}"
+            )
+            return
+
+        # =====================================================
+        # MV
+        # =====================================================
+
+        if command == "mv":
+
+            if len(args) != 2:
+                self.terminal_output(
+                    chat_id,
+                    "Использование:\n"
+                    "$ mv source destination"
+                )
+                return
+
+            source = self.normalize_path(
+                current_dir,
+                args[0]
+            )
+
+            destination = self.normalize_path(
+                current_dir,
+                args[1]
+            )
+
+            source_file = self.database.get_file(
+                user_id,
+                source
+            )
+
+            if not source_file:
+                self.terminal_output(
+                    chat_id,
+                    "❌ Исходный файл не найден."
+                )
+                return
+
+            if self.database.path_exists(
+                user_id,
+                destination
+            ):
+                self.terminal_output(
+                    chat_id,
+                    "❌ Назначение уже существует."
+                )
+                return
+
+            if source_file[2] == "directory":
+                self.terminal_output(
+                    chat_id,
+                    "❌ Перемещение папок пока не поддерживается."
+                )
+                return
+
+            self.database.create_file(
+                user_id,
+                destination,
+                file_type="file",
+                content=source_file[3] or ""
+            )
+
+            self.database.delete_file(
+                user_id,
+                source
+            )
+
+            self.terminal_output(
+                chat_id,
+                f"📦 Перемещено: {args[0]} → {args[1]}"
+            )
+            return
+
+        # =====================================================
+        # TREE
+        # =====================================================
+
+        if command == "tree":
+
+            root = current_dir
+
+            if args:
+                root = self.normalize_path(
+                    current_dir,
+                    args[0]
+                )
+
+            root_file = self.database.get_file(
+                user_id,
+                root
+            )
+
+            if not root_file:
+                self.terminal_output(
+                    chat_id,
+                    "❌ Путь не найден."
+                )
+                return
+
+            if root_file[2] != "directory":
+                self.terminal_output(
+                    chat_id,
+                    "❌ Это не папка."
+                )
+                return
+
+            lines = [
+                f"📂 {root.split('/')[-1] or '/'}"
+            ]
+
+            self.build_tree(
+                user_id,
+                root,
+                lines,
+                ""
+            )
+
+            self.terminal_output(
+                chat_id,
+                "\n".join(lines)
+            )
+            return
+
+        # =====================================================
+        # HISTORY
+        # =====================================================
+
+        if command == "history":
+
+            history = self.command_history.get(
+                user_id,
+                []
+            )
+
+            if not history:
+                self.terminal_output(
+                    chat_id,
+                    "(история пуста)"
+                )
+                return
+
+            lines = []
+
+            for index, item in enumerate(
+                history,
+                start=1
+            ):
+                lines.append(
+                    f"{index:02d}  ${item}"
+                )
+
+            self.terminal_output(
+                chat_id,
+                "\n".join(lines)
+            )
+            return
+
+        # =====================================================
+        # NEOFETCH
+        # =====================================================
+
+        if command == "neofetch":
+
+            self.terminal_output(
+                chat_id,
+                "        ████████\n"
+                "      ██  T-OS  ██\n"
+                "     ██          ██\n"
+                "      ██  OS   ██\n"
+                "        ████████\n\n"
+                "🖥️ T-OS\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "Version: 0.1\n"
+                "Kernel: TOS-Core\n"
+                "Shell: T-Shell\n"
+                "Filesystem: TFS\n"
+                "Database: SQLite\n"
+                "Mode: Virtual\n"
+                "Platform: Telegram\n"
+                "Status: ONLINE 🟢"
+            )
+            return
+
+        # =====================================================
+        # UNKNOWN
+        # =====================================================
+
         self.terminal_output(
             chat_id,
-            f"❌ Неизвестная команда: {command}\n\n"
+            f"❌ Команда не найдена: {command}\n\n"
             "Введите $ help"
         )
 
-    # =========================
+    def build_tree(
+        self,
+        user_id,
+        directory,
+        lines,
+        prefix
+    ):
+        files = self.database.get_files(
+            user_id,
+            directory
+        )
+
+        children = []
+
+        for file in files:
+            path = file[1]
+
+            if path.count("/") != directory.count("/") + 1:
+                continue
+
+            children.append(file)
+
+        for index, file in enumerate(children):
+            path = file[1]
+            file_type = file[2]
+
+            is_last = index == len(children) - 1
+
+            branch = "└── " if is_last else "├── "
+
+            name = path.split("/")[-1]
+
+            if file_type == "directory":
+                lines.append(
+                    prefix
+                    + branch
+                    + "📂 "
+                    + name
+                )
+
+                new_prefix = (
+                    prefix + "    "
+                    if is_last
+                    else prefix + "│   "
+                )
+
+                self.build_tree(
+                    user_id,
+                    path,
+                    lines,
+                    new_prefix
+                )
+
+            else:
+                lines.append(
+                    prefix
+                    + branch
+                    + "📄 "
+                    + name
+                )
+
+    # =========================================================
     # OTHER APPS
-    # =========================
+    # =========================================================
 
     def show_terminal(self, chat_id, user_id):
-        current_dir = self.get_terminal_dir(user_id)
+        current_dir = self.get_terminal_dir(
+            user_id
+        )
 
         keyboard = [
             [
@@ -842,17 +1465,13 @@ class TelegramHandler:
 
         self.send_message(
             chat_id,
-            "💻 T-OS TERMINAL\n\n"
-            f"📍 {current_dir}\n\n"
+            "💻 T-OS TERMINAL 2.0\n\n"
+            f"user@t-os:{current_dir}$\n\n"
             "$ help\n"
-            "$ pwd\n"
             "$ ls\n"
-            "$ cd Documents\n"
-            "$ touch test.txt\n"
-            "$ mkdir Projects\n"
-            "$ cat test.txt\n"
-            "$ rm test.txt\n"
-            "$ clear\n\n"
+            "$ pwd\n"
+            "$ tree\n"
+            "$ neofetch\n\n"
             "Введите команду сообщением.",
             keyboard
         )
@@ -860,8 +1479,14 @@ class TelegramHandler:
     def show_profile(self, chat_id, message):
         user = message.get("from", {})
 
-        user_id = user.get("id", "неизвестно")
-        username = user.get("username")
+        user_id = user.get(
+            "id",
+            "неизвестно"
+        )
+
+        username = user.get(
+            "username"
+        )
 
         if username:
             username = f"@{username}"
