@@ -5,6 +5,8 @@ from core.dev import DeveloperSystem
 from core.group_os import GroupOS
 
 from telegram.handlers.group import GroupHandler
+from telegram.handlers.developer import DeveloperHandler
+from telegram.handlers.filesystem import FilesystemHandler
 
 
 class TelegramHandler:
