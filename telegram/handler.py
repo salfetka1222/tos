@@ -19,6 +19,28 @@ class TelegramHandler:
         self.command_history = {}
 
     # =====================================================
+    # AUDIT
+    # =====================================================
+
+    def audit(
+        self,
+        actor_id,
+        action,
+        target_id=None,
+        details=""
+    ):
+        try:
+            self.database.add_audit_log(
+                actor_id=actor_id,
+                action=action,
+                target_id=target_id,
+                details=details
+            )
+        except Exception:
+            # Ошибка журнала не должна ломать T-OS.
+            pass
+
+    # =====================================================
     # UPDATE
     # =====================================================
 
@@ -42,13 +64,11 @@ class TelegramHandler:
 
         username = sender.get("username")
 
-        # Создаём пользователя
         self.database.create_user(
             user_id,
             username
         )
 
-        # First Login
         if not self.database.has_achievement(
             user_id,
             "First Login"
@@ -151,7 +171,7 @@ class TelegramHandler:
             return
 
         # =================================================
-        # COMMANDS
+        # DEVELOPER COMMAND
         # =================================================
 
         if text == "/dev":
@@ -163,14 +183,23 @@ class TelegramHandler:
                     chat_id,
                     "⛔ Доступ запрещён."
                 )
-
                 return
+
+            self.audit(
+                actor_id=user_id,
+                action="developer_panel",
+                details="Opened developer panel"
+            )
 
             self.show_developer_panel(
                 chat_id
             )
 
             return
+
+        # =================================================
+        # COMMANDS
+        # =================================================
 
         if text == "/start":
 
@@ -212,15 +241,11 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "📝 Заметки":
 
-            self.show_notes(
-                chat_id
-            )
-
+            self.show_notes(chat_id)
             return
 
         if text == "💻 Терминал":
@@ -229,15 +254,11 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "🧮 Калькулятор":
 
-            self.show_calculator(
-                chat_id
-            )
-
+            self.show_calculator(chat_id)
             return
 
         if text == "🎮 Игры":
@@ -246,15 +267,11 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "⚙️ Настройки":
 
-            self.show_settings(
-                chat_id
-            )
-
+            self.show_settings(chat_id)
             return
 
         if text == "👤 Профиль":
@@ -263,7 +280,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "🏆 Достижения":
@@ -272,23 +288,16 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "📦 App Store":
 
-            self.show_app_store(
-                chat_id
-            )
-
+            self.show_app_store(chat_id)
             return
 
         if text == "🖥️ Главное меню":
 
-            self.show_home(
-                chat_id
-            )
-
+            self.show_home(chat_id)
             return
 
         # =================================================
@@ -301,7 +310,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "📂 Открыть":
@@ -311,7 +319,6 @@ class TelegramHandler:
                 user_id,
                 "/home/user"
             )
-
             return
 
         if text == "⬅️ Назад":
@@ -320,7 +327,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         # =================================================
@@ -333,7 +339,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "🔢 Guess Number":
@@ -342,7 +347,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "🧠 Quiz":
@@ -351,7 +355,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "🧩 Riddles":
@@ -360,7 +363,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "⚡ Reaction":
@@ -369,7 +371,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         if text == "❌ Выйти из игры":
@@ -382,7 +383,6 @@ class TelegramHandler:
                 chat_id,
                 user_id
             )
-
             return
 
         # =================================================
@@ -399,6 +399,12 @@ class TelegramHandler:
                     "⛔ Доступ запрещён."
                 )
                 return
+
+            self.audit(
+                user_id,
+                "view_statistics",
+                details="Viewed system statistics"
+            )
 
             self.show_developer_stats(
                 chat_id
@@ -417,17 +423,14 @@ class TelegramHandler:
                 )
                 return
 
-            self.show_developer_users(
-                chat_id
+            self.audit(
+                user_id,
+                "view_users",
+                details="Viewed user list"
             )
 
-            return
-
-        if text == "🎮 Игры":
-
-            self.show_games(
-                chat_id,
-                user_id
+            self.show_developer_users(
+                chat_id
             )
 
             return
@@ -442,6 +445,12 @@ class TelegramHandler:
                     "⛔ Доступ запрещён."
                 )
                 return
+
+            self.audit(
+                user_id,
+                "view_database",
+                details="Viewed database information"
+            )
 
             self.show_database_info(
                 chat_id
@@ -460,11 +469,14 @@ class TelegramHandler:
                 )
                 return
 
-            self.send_message(
-                chat_id,
-                "🧾 AUDIT LOG\n\n"
-                "Система журнала действий будет подключена "
-                "на следующем этапе."
+            self.audit(
+                user_id,
+                "view_audit_log",
+                details="Viewed audit log"
+            )
+
+            self.show_audit_log(
+                chat_id
             )
 
             return
@@ -480,10 +492,18 @@ class TelegramHandler:
                 )
                 return
 
+            self.audit(
+                user_id,
+                "view_experimental_lab",
+                details="Opened Experimental Lab"
+            )
+
             self.send_message(
                 chat_id,
-                "🧪 EXPERIMENTAL LAB\n\n"
-                "Экспериментальные функции пока отключены."
+                (
+                    "🧪 EXPERIMENTAL LAB\n\n"
+                    "Экспериментальные функции пока отключены."
+                )
             )
 
             return
@@ -499,6 +519,12 @@ class TelegramHandler:
                 )
                 return
 
+            self.audit(
+                user_id,
+                "view_system",
+                details="Viewed system information"
+            )
+
             self.show_system_info(
                 chat_id
             )
@@ -511,8 +537,10 @@ class TelegramHandler:
 
         self.send_message(
             chat_id,
-            "❓ Команда не распознана.\n\n"
-            "Используй главное меню."
+            (
+                "❓ Команда не распознана.\n\n"
+                "Используй главное меню."
+            )
         )
 
     # =====================================================
@@ -547,41 +575,23 @@ class TelegramHandler:
 
         keyboard = [
             [
-                {
-                    "text": "📁 Файлы"
-                },
-                {
-                    "text": "📝 Заметки"
-                }
+                {"text": "📁 Файлы"},
+                {"text": "📝 Заметки"}
             ],
             [
-                {
-                    "text": "💻 Терминал"
-                },
-                {
-                    "text": "🧮 Калькулятор"
-                }
+                {"text": "💻 Терминал"},
+                {"text": "🧮 Калькулятор"}
             ],
             [
-                {
-                    "text": "🎮 Игры"
-                },
-                {
-                    "text": "⚙️ Настройки"
-                }
+                {"text": "🎮 Игры"},
+                {"text": "⚙️ Настройки"}
             ],
             [
-                {
-                    "text": "👤 Профиль"
-                },
-                {
-                    "text": "🏆 Достижения"
-                }
+                {"text": "👤 Профиль"},
+                {"text": "🏆 Достижения"}
             ],
             [
-                {
-                    "text": "📦 App Store"
-                }
+                {"text": "📦 App Store"}
             ]
         ]
 
@@ -606,38 +616,22 @@ class TelegramHandler:
 
         keyboard = [
             [
-                {
-                    "text": "📊 Статистика"
-                },
-                {
-                    "text": "👥 Пользователи"
-                }
+                {"text": "📊 Статистика"},
+                {"text": "👥 Пользователи"}
             ],
             [
-                {
-                    "text": "🎮 Игры"
-                },
-                {
-                    "text": "💾 База данных"
-                }
+                {"text": "🎮 Игры"},
+                {"text": "💾 База данных"}
             ],
             [
-                {
-                    "text": "🧾 Audit Log"
-                },
-                {
-                    "text": "🧪 Experimental Lab"
-                }
+                {"text": "🧾 Audit Log"},
+                {"text": "🧪 Experimental Lab"}
             ],
             [
-                {
-                    "text": "⚙️ Система"
-                }
+                {"text": "⚙️ Система"}
             ],
             [
-                {
-                    "text": "🖥️ Главное меню"
-                }
+                {"text": "🖥️ Главное меню"}
             ]
         ]
 
@@ -655,7 +649,7 @@ class TelegramHandler:
         )
 
     # =====================================================
-    # DEVELOPER STATS
+    # DEVELOPER STATISTICS
     # =====================================================
 
     def show_developer_stats(self, chat_id):
@@ -714,6 +708,79 @@ class TelegramHandler:
         self.send_message(
             chat_id,
             "\n".join(lines)
+        )
+
+    # =====================================================
+    # AUDIT LOG
+    # =====================================================
+
+    def show_audit_log(self, chat_id):
+
+        logs = self.database.get_audit_logs(
+            limit=20
+        )
+
+        if not logs:
+
+            self.send_message(
+                chat_id,
+                (
+                    "🧾 AUDIT LOG\n\n"
+                    "Журнал пока пуст."
+                )
+            )
+
+            return
+
+        lines = [
+            "🧾 T-OS AUDIT LOG",
+            "",
+            "Последние события:",
+            ""
+        ]
+
+        for log in logs:
+
+            timestamp = log["created_at"]
+
+            actor = log["actor_id"]
+
+            action = log["action"]
+
+            target = log["target_id"]
+
+            details = log["details"]
+
+            line = (
+                f"#{log['id']} | {timestamp}\n"
+                f"👤 Actor: {actor}\n"
+                f"⚙️ Action: {action}"
+            )
+
+            if target is not None:
+
+                line += (
+                    f"\n🎯 Target: {target}"
+                )
+
+            if details:
+
+                line += (
+                    f"\n📝 {details}"
+                )
+
+            lines.append(line)
+            lines.append("")
+
+        text = "\n".join(lines)
+
+        # Telegram ограничивает длину сообщения.
+        if len(text) > 3900:
+            text = text[:3900] + "\n\n..."
+
+        self.send_message(
+            chat_id,
+            text
         )
 
     # =====================================================
@@ -791,17 +858,11 @@ class TelegramHandler:
 
         keyboard = [
             [
-                {
-                    "text": "➕ Новый файл"
-                },
-                {
-                    "text": "📂 Открыть"
-                }
+                {"text": "➕ Новый файл"},
+                {"text": "📂 Открыть"}
             ],
             [
-                {
-                    "text": "🖥️ Главное меню"
-                }
+                {"text": "🖥️ Главное меню"}
             ]
         ]
 
@@ -846,10 +907,7 @@ class TelegramHandler:
             None
         )
 
-        path = (
-            "/home/user/"
-            + filename
-        )
+        path = "/home/user/" + filename
 
         if self.database.path_exists(
             user_id,
@@ -1148,10 +1206,6 @@ class TelegramHandler:
         command = parts[0].lower()
         args = parts[1:]
 
-        # -----------------------------------------------
-        # help
-        # -----------------------------------------------
-
         if command == "help":
 
             self.terminal_output(
@@ -1178,27 +1232,15 @@ class TelegramHandler:
                     "$ neofetch"
                 )
             )
-
             return
-
-        # -----------------------------------------------
-        # pwd
-        # -----------------------------------------------
 
         if command == "pwd":
 
             self.terminal_output(
                 chat_id,
-                self.get_terminal_dir(
-                    user_id
-                )
+                self.get_terminal_dir(user_id)
             )
-
             return
-
-        # -----------------------------------------------
-        # whoami
-        # -----------------------------------------------
 
         if command == "whoami":
 
@@ -1206,12 +1248,7 @@ class TelegramHandler:
                 chat_id,
                 str(user_id)
             )
-
             return
-
-        # -----------------------------------------------
-        # date
-        # -----------------------------------------------
 
         if command == "date":
 
@@ -1221,12 +1258,7 @@ class TelegramHandler:
                     "%Y-%m-%d %H:%M:%S"
                 )
             )
-
             return
-
-        # -----------------------------------------------
-        # clear
-        # -----------------------------------------------
 
         if command == "clear":
 
@@ -1234,12 +1266,7 @@ class TelegramHandler:
                 chat_id,
                 "🧹 Terminal cleared."
             )
-
             return
-
-        # -----------------------------------------------
-        # ls
-        # -----------------------------------------------
 
         if command == "ls":
 
@@ -1258,7 +1285,6 @@ class TelegramHandler:
                     chat_id,
                     "(empty)"
                 )
-
                 return
 
             lines = []
@@ -1268,33 +1294,21 @@ class TelegramHandler:
                 name = item["path"].split("/")[-1]
 
                 if item["file_type"] == "directory":
-                    lines.append(
-                        name + "/"
-                    )
+                    lines.append(name + "/")
                 else:
-                    lines.append(
-                        name
-                    )
+                    lines.append(name)
 
             self.terminal_output(
                 chat_id,
                 "\n".join(lines)
             )
-
             return
-
-        # -----------------------------------------------
-        # cd
-        # -----------------------------------------------
 
         if command == "cd":
 
             if not args:
-
                 target = "/home/user"
-
             else:
-
                 target = self.normalize_path(
                     user_id,
                     args[0]
@@ -1311,7 +1325,6 @@ class TelegramHandler:
                     chat_id,
                     "cd: directory not found"
                 )
-
                 return
 
             if file["file_type"] != "directory":
@@ -1320,19 +1333,13 @@ class TelegramHandler:
                     chat_id,
                     "cd: not a directory"
                 )
-
                 return
 
             self.set_terminal_dir(
                 user_id,
                 target
             )
-
             return
-
-        # -----------------------------------------------
-        # touch
-        # -----------------------------------------------
 
         if command == "touch":
 
@@ -1342,7 +1349,6 @@ class TelegramHandler:
                     chat_id,
                     "touch: missing filename"
                 )
-
                 return
 
             path = self.normalize_path(
@@ -1359,12 +1365,7 @@ class TelegramHandler:
                 chat_id,
                 "created: " + path
             )
-
             return
-
-        # -----------------------------------------------
-        # mkdir
-        # -----------------------------------------------
 
         if command == "mkdir":
 
@@ -1374,7 +1375,6 @@ class TelegramHandler:
                     chat_id,
                     "mkdir: missing directory"
                 )
-
                 return
 
             path = self.normalize_path(
@@ -1392,12 +1392,7 @@ class TelegramHandler:
                 chat_id,
                 "created directory: " + path
             )
-
             return
-
-        # -----------------------------------------------
-        # cat
-        # -----------------------------------------------
 
         if command == "cat":
 
@@ -1407,7 +1402,6 @@ class TelegramHandler:
                     chat_id,
                     "cat: missing file"
                 )
-
                 return
 
             path = self.normalize_path(
@@ -1426,19 +1420,13 @@ class TelegramHandler:
                     chat_id,
                     "cat: file not found"
                 )
-
                 return
 
             self.terminal_output(
                 chat_id,
                 file["content"] or "(empty)"
             )
-
             return
-
-        # -----------------------------------------------
-        # write
-        # -----------------------------------------------
 
         if command == "write":
 
@@ -1448,7 +1436,6 @@ class TelegramHandler:
                     chat_id,
                     "write: usage: $ write <file> <text>"
                 )
-
                 return
 
             path = self.normalize_path(
@@ -1456,15 +1443,12 @@ class TelegramHandler:
                 args[0]
             )
 
-            content = " ".join(
-                args[1:]
-            )
+            content = " ".join(args[1:])
 
             if not self.database.path_exists(
                 user_id,
                 path
             ):
-
                 self.database.create_file(
                     user_id,
                     path
@@ -1480,12 +1464,7 @@ class TelegramHandler:
                 chat_id,
                 "saved: " + path
             )
-
             return
-
-        # -----------------------------------------------
-        # echo
-        # -----------------------------------------------
 
         if command == "echo":
 
@@ -1493,12 +1472,7 @@ class TelegramHandler:
                 chat_id,
                 " ".join(args)
             )
-
             return
-
-        # -----------------------------------------------
-        # rm
-        # -----------------------------------------------
 
         if command == "rm":
 
@@ -1508,7 +1482,6 @@ class TelegramHandler:
                     chat_id,
                     "rm: missing file"
                 )
-
                 return
 
             path = self.normalize_path(
@@ -1525,7 +1498,6 @@ class TelegramHandler:
                     chat_id,
                     "rm: not found"
                 )
-
                 return
 
             self.database.delete_file(
@@ -1537,12 +1509,7 @@ class TelegramHandler:
                 chat_id,
                 "removed: " + path
             )
-
             return
-
-        # -----------------------------------------------
-        # cp
-        # -----------------------------------------------
 
         if command == "cp":
 
@@ -1552,7 +1519,6 @@ class TelegramHandler:
                     chat_id,
                     "cp: usage: $ cp <src> <dst>"
                 )
-
                 return
 
             source = self.normalize_path(
@@ -1576,7 +1542,6 @@ class TelegramHandler:
                     chat_id,
                     "cp: source not found"
                 )
-
                 return
 
             self.database.create_file(
@@ -1590,12 +1555,7 @@ class TelegramHandler:
                 chat_id,
                 "copied"
             )
-
             return
-
-        # -----------------------------------------------
-        # mv
-        # -----------------------------------------------
 
         if command == "mv":
 
@@ -1605,7 +1565,6 @@ class TelegramHandler:
                     chat_id,
                     "mv: usage: $ mv <src> <dst>"
                 )
-
                 return
 
             source = self.normalize_path(
@@ -1629,7 +1588,6 @@ class TelegramHandler:
                     chat_id,
                     "mv: source not found"
                 )
-
                 return
 
             self.database.create_file(
@@ -1648,12 +1606,7 @@ class TelegramHandler:
                 chat_id,
                 "moved"
             )
-
             return
-
-        # -----------------------------------------------
-        # tree
-        # -----------------------------------------------
 
         if command == "tree":
 
@@ -1670,12 +1623,7 @@ class TelegramHandler:
                 chat_id,
                 output or "(empty)"
             )
-
             return
-
-        # -----------------------------------------------
-        # history
-        # -----------------------------------------------
 
         if command == "history":
 
@@ -1690,7 +1638,6 @@ class TelegramHandler:
                     chat_id,
                     "(empty)"
                 )
-
                 return
 
             lines = []
@@ -1699,7 +1646,6 @@ class TelegramHandler:
                 history,
                 start=1
             ):
-
                 lines.append(
                     f"{index}  {item}"
                 )
@@ -1708,12 +1654,7 @@ class TelegramHandler:
                 chat_id,
                 "\n".join(lines)
             )
-
             return
-
-        # -----------------------------------------------
-        # neofetch
-        # -----------------------------------------------
 
         if command == "neofetch":
 
@@ -1735,7 +1676,6 @@ class TelegramHandler:
                     "Core: T-OS"
                 )
             )
-
             return
 
         self.terminal_output(
@@ -1865,7 +1805,6 @@ class TelegramHandler:
                     "Пока достижений нет."
                 )
             )
-
             return
 
         lines = [
@@ -1957,35 +1896,21 @@ class TelegramHandler:
 
         keyboard = [
             [
-                {
-                    "text": "🎲 Dice"
-                },
-                {
-                    "text": "🔢 Guess Number"
-                }
+                {"text": "🎲 Dice"},
+                {"text": "🔢 Guess Number"}
             ],
             [
-                {
-                    "text": "🧠 Quiz"
-                },
-                {
-                    "text": "🧩 Riddles"
-                }
+                {"text": "🧠 Quiz"},
+                {"text": "🧩 Riddles"}
             ],
             [
-                {
-                    "text": "⚡ Reaction"
-                }
+                {"text": "⚡ Reaction"}
             ],
             [
-                {
-                    "text": "❌ Выйти из игры"
-                }
+                {"text": "❌ Выйти из игры"}
             ],
             [
-                {
-                    "text": "🖥️ Главное меню"
-                }
+                {"text": "🖥️ Главное меню"}
             ]
         ]
 
