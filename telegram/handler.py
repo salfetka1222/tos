@@ -14,8 +14,8 @@ class TelegramHandler:
         text = message.get("text", "")
         chat_id = message["chat"]["id"]
 
-        if text == "/start":
-            self.show_home(chat_id)
+        if text == "👤 Профиль":
+            self.show_profile(chat_id, message)
 
     def show_home(self, chat_id):
         keyboard = {
