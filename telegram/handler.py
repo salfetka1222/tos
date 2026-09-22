@@ -14,7 +14,7 @@ class TelegramHandler:
 
         self.games = GamesSystem(database)
         self.developer = DeveloperSystem(database)
-        self.group_os = GroupOS(bot)
+        self.group_os = GroupOS(bot, database)
 
         self.file_states = {}
         self.terminal_dirs = {}
