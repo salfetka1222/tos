@@ -14,6 +14,7 @@ class TelegramHandler:
 
         self.games = GamesSystem(database)
         self.developer = DeveloperSystem(database)
+        self.group_os = GroupOS(bot)
 
         self.file_states = {}
         self.terminal_dirs = {}
@@ -38,7 +39,6 @@ class TelegramHandler:
                 details=details
             )
         except Exception:
-            # Ошибка журнала не должна ломать T-OS.
             pass
 
     # =====================================================
@@ -226,6 +226,19 @@ class TelegramHandler:
         if text == "/achievements":
 
             self.show_achievements(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        # =================================================
+        # GROUP OS
+        # =================================================
+
+        if text == "/group":
+
+            self.show_group_dashboard(
                 chat_id,
                 user_id
             )
@@ -569,6 +582,142 @@ class TelegramHandler:
         )
 
     # =====================================================
+    # GROUP OS
+    # =====================================================
+
+    def show_group_dashboard(
+        self,
+        chat_id,
+        user_id
+    ):
+
+        chat_response = self.bot.request(
+            "getChat",
+            {
+                "chat_id": chat_id
+            }
+        )
+
+        if not chat_response or not chat_response.get("ok"):
+
+            self.send_message(
+                chat_id,
+                "❌ Не удалось получить информацию о группе."
+            )
+
+            return
+
+        chat_data = chat_response.get(
+            "result",
+            {}
+        )
+
+        chat_type = chat_data.get(
+            "type",
+            "unknown"
+        )
+
+        if chat_type not in (
+            "group",
+            "supergroup"
+        ):
+
+            self.send_message(
+                chat_id,
+                (
+                    "⚠️ <b>GROUP OS</b>\n\n"
+                    "Group OS доступна только "
+                    "в Telegram-группах."
+                )
+            )
+
+            return
+
+        title = chat_data.get(
+            "title",
+            "Без названия"
+        )
+
+        username = chat_data.get(
+            "username"
+        )
+
+        if username:
+            username = "@" + username
+        else:
+            username = "нет"
+
+        members_response = self.bot.request(
+            "getChatMemberCount",
+            {
+                "chat_id": chat_id
+            }
+        )
+
+        if (
+            members_response
+            and members_response.get("ok")
+        ):
+
+            members = members_response.get(
+                "result",
+                "?"
+            )
+
+        else:
+            members = "?"
+
+        self.audit(
+            actor_id=user_id,
+            action="group_dashboard",
+            target_id=chat_id,
+            details="Opened Group OS dashboard"
+        )
+
+        keyboard = [
+            [
+                {"text": "👥 Members"},
+                {"text": "🛡 Moderation"}
+            ],
+            [
+                {"text": "📜 Group Audit Log"},
+                {"text": "⚙️ Permissions"}
+            ],
+            [
+                {"text": "🤖 AI Settings"},
+                {"text": "📊 Statistics"}
+            ],
+            [
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            (
+                "🖥️ <b>T-OS GROUP OS</b>\n\n"
+                "🏠 <b>GROUP DASHBOARD</b>\n\n"
+                f"📌 <b>Название:</b> {title}\n"
+                f"🆔 <b>ID:</b> <code>{chat_id}</code>\n"
+                f"💬 <b>Тип:</b> {chat_type}\n"
+                f"🔗 <b>Username:</b> {username}\n"
+                f"👥 <b>Участников:</b> {members}\n\n"
+                "🟢 <b>T-OS:</b> ACTIVE\n\n"
+                "⚙️ <b>GROUP OS MODULES</b>\n"
+                "├ 👥 Members\n"
+                "├ 🛡 Moderation\n"
+                "├ 📜 Group Audit Log\n"
+                "├ ⚙️ Permissions\n"
+                "├ 🤖 AI Settings\n"
+                "└ 📊 Statistics"
+            ),
+            {
+                "keyboard": keyboard,
+                "resize_keyboard": True
+            }
+        )
+
+    # =====================================================
     # HOME
     # =====================================================
 
@@ -743,13 +892,9 @@ class TelegramHandler:
         for log in logs:
 
             timestamp = log["created_at"]
-
             actor = log["actor_id"]
-
             action = log["action"]
-
             target = log["target_id"]
-
             details = log["details"]
 
             line = (
@@ -759,13 +904,11 @@ class TelegramHandler:
             )
 
             if target is not None:
-
                 line += (
                     f"\n🎯 Target: {target}"
                 )
 
             if details:
-
                 line += (
                     f"\n📝 {details}"
                 )
@@ -775,7 +918,6 @@ class TelegramHandler:
 
         text = "\n".join(lines)
 
-        # Telegram ограничивает длину сообщения.
         if len(text) > 3900:
             text = text[:3900] + "\n\n..."
 
