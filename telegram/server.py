@@ -2,12 +2,16 @@ from flask import Flask, request
 
 from telegram.bot import TelegramBot
 from telegram.handler import TelegramHandler
+from database.database import Database
 
 
 app = Flask(__name__)
 
+database = Database()
+database.initialize()
+
 bot = TelegramBot()
-handler = TelegramHandler(bot)
+handler = TelegramHandler(bot, database)
 
 
 @app.get("/")
