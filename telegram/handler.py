@@ -313,11 +313,14 @@ class TelegramHandler:
         # =====================================================
 
         if text == "/dev":
-            if self.is_developer(user_id):
-                self.show_developer_panel(
+            if not self.developer.is_developer(user_id):
+                self.send_message(
                     chat_id,
-                    user_id
+                    "⛔ Доступ запрещён."
                 )
+            return
+            
+            self.show_developer_panel(chat_id)
             return
 
         if text == "/myid":
