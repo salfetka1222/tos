@@ -32,38 +32,83 @@ class TelegramHandler:
             self.create_new_file(chat_id, user_id, text)
             return
 
-        # Ожидаем содержимое файла
+        # Ожидаем новое содержимое файла
         if state and state.startswith("editing:"):
             path = state.replace("editing:", "", 1)
             self.save_file_content(chat_id, user_id, path, text)
             return
 
+        # Открытый файл
+        if state and state.startswith("opened:"):
+
+            if text == "✏️ Редактировать":
+                path = state.replace("opened:", "", 1)
+
+                self.start_editing(
+                    chat_id,
+                    user_id,
+                    path
+                )
+                return
+
+            if text == "📁 Файлы":
+                self.file_states.pop(user_id, None)
+                self.show_files(chat_id, user_id)
+                return
+
+        # Главное меню
         if text == "/start":
+            self.file_states.pop(user_id, None)
             self.show_home(chat_id)
 
         elif text == "📁 Файлы":
+            self.file_states.pop(user_id, None)
             self.show_files(chat_id, user_id)
 
         elif text == "📄 Создать файл":
             self.ask_filename(chat_id, user_id)
 
         elif text == "📂 Desktop":
-            self.show_directory(chat_id, user_id, "/home/user/Desktop")
+            self.show_directory(
+                chat_id,
+                user_id,
+                "/home/user/Desktop"
+            )
 
         elif text == "📂 Documents":
-            self.show_directory(chat_id, user_id, "/home/user/Documents")
+            self.show_directory(
+                chat_id,
+                user_id,
+                "/home/user/Documents"
+            )
 
         elif text == "📂 Downloads":
-            self.show_directory(chat_id, user_id, "/home/user/Downloads")
+            self.show_directory(
+                chat_id,
+                user_id,
+                "/home/user/Downloads"
+            )
 
         elif text == "📂 Pictures":
-            self.show_directory(chat_id, user_id, "/home/user/Pictures")
+            self.show_directory(
+                chat_id,
+                user_id,
+                "/home/user/Pictures"
+            )
 
         elif text == "📂 Projects":
-            self.show_directory(chat_id, user_id, "/home/user/Projects")
+            self.show_directory(
+                chat_id,
+                user_id,
+                "/home/user/Projects"
+            )
 
         elif text == "📂 Trash":
-            self.show_directory(chat_id, user_id, "/home/user/Trash")
+            self.show_directory(
+                chat_id,
+                user_id,
+                "/home/user/Trash"
+            )
 
         elif text == "📝 Заметки":
             self.show_notes(chat_id)
@@ -87,9 +132,10 @@ class TelegramHandler:
             self.show_app_store(chat_id)
 
         elif text == "🖥️ Главное меню":
+            self.file_states.pop(user_id, None)
             self.show_home(chat_id)
 
-        # Открытие файлов по кнопкам
+        # Открытие файла
         elif text.startswith("📄 "):
             filename = text[2:].strip()
 
@@ -263,7 +309,7 @@ class TelegramHandler:
             f"✅ Файл создан!\n\n"
             f"📄 {filename}\n"
             f"📍 {path}\n\n"
-            "Теперь открой папку Documents."
+            "Теперь откройте папку Documents."
         )
 
     def show_directory(self, chat_id, user_id, directory):
@@ -356,7 +402,49 @@ class TelegramHandler:
             keyboard
         )
 
+    def start_editing(self, chat_id, user_id, path):
+        file = self.database.get_file(
+            user_id,
+            path
+        )
+
+        if not file:
+            self.file_states.pop(user_id, None)
+
+            self.send_message(
+                chat_id,
+                "❌ Файл не найден."
+            )
+            return
+
+        filename = path.split("/")[-1]
+
+        self.file_states[user_id] = f"editing:{path}"
+
+        self.send_message(
+            chat_id,
+            f"✏️ РЕДАКТИРОВАНИЕ\n\n"
+            f"📄 {filename}\n"
+            f"📍 {path}\n\n"
+            "Отправьте новое содержимое файла.\n\n"
+            "⚠️ Текущая версия будет полностью заменена."
+        )
+
     def save_file_content(self, chat_id, user_id, path, content):
+        file = self.database.get_file(
+            user_id,
+            path
+        )
+
+        if not file:
+            self.file_states.pop(user_id, None)
+
+            self.send_message(
+                chat_id,
+                "❌ Файл больше не существует."
+            )
+            return
+
         self.database.update_file(
             user_id,
             path,
@@ -371,7 +459,29 @@ class TelegramHandler:
             chat_id,
             f"✅ Файл сохранён!\n\n"
             f"📄 {filename}\n"
-            f"📍 {path}"
+            f"📍 {path}\n\n"
+            "Изменения записаны в T-OS."
+        )
+
+    def show_profile(self, chat_id, message):
+        user = message.get("from", {})
+
+        user_id = user.get("id", "неизвестно")
+        username = user.get("username")
+
+        if username:
+            username = f"@{username}"
+        else:
+            username = "не установлен"
+
+        self.send_message(
+            chat_id,
+            "👤 ПРОФИЛЬ T-OS\n\n"
+            f"🆔 ID: {user_id}\n"
+            f"👤 Username: {username}\n\n"
+            "⭐ Уровень: 1\n"
+            "✨ XP: 0\n"
+            "🪙 T-Coins: 0"
         )
 
     def show_notes(self, chat_id):
