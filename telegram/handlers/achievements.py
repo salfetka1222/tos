@@ -1,6 +1,3 @@
-from html import escape
-
-
 class AchievementsHandler:
 
     ACHIEVEMENTS = {
@@ -65,32 +62,29 @@ class AchievementsHandler:
             return None
 
     def unlock(self, chat_id, user_id, achievement_id):
-        achievement = self.ACHIEVEMENTS.get(
-            achievement_id
-        )
+        achievement = self.ACHIEVEMENTS.get(achievement_id)
 
         if not achievement:
             return False
 
         try:
-            already_unlocked = self.database.has_achievement(
+            if self.database.has_achievement(
+                user_id,
+                achievement_id
+            ):
+                return False
+        except Exception:
+            return False
+
+        try:
+            created = self.database.unlock_achievement(
                 user_id,
                 achievement_id
             )
         except Exception:
-            already_unlocked = False
-
-        if already_unlocked:
             return False
 
-        try:
-            self.database.unlock_achievement(
-                user_id,
-                achievement_id,
-                achievement["name"],
-                achievement["description"]
-            )
-        except Exception:
+        if not created:
             return False
 
         try:
@@ -113,8 +107,8 @@ class AchievementsHandler:
             chat_id,
             (
                 "🏆 <b>НОВОЕ ДОСТИЖЕНИЕ!</b>\n\n"
-                f"🎖 <b>{escape(achievement['name'])}</b>\n\n"
-                f"{escape(achievement['description'])}\n\n"
+                f"🎖 <b>{achievement['name']}</b>\n\n"
+                f"{achievement['description']}\n\n"
                 f"✨ +{achievement['xp']} XP\n"
                 f"🪙 +{achievement['coins']} монет"
             )
@@ -135,7 +129,7 @@ class AchievementsHandler:
         for achievement in unlocked:
             try:
                 unlocked_ids.add(
-                    achievement["achievement_id"]
+                    achievement["achievement"]
                 )
             except Exception:
                 pass
@@ -143,6 +137,7 @@ class AchievementsHandler:
         result = []
 
         for achievement_id, achievement in self.ACHIEVEMENTS.items():
+
             if achievement_id in unlocked_ids:
                 icon = "🏆"
                 status = "Открыто"
@@ -151,8 +146,8 @@ class AchievementsHandler:
                 status = "Заблокировано"
 
             result.append(
-                f"{icon} <b>{escape(achievement['name'])}</b>\n"
-                f"{escape(achievement['description'])}\n"
+                f"{icon} <b>{achievement['name']}</b>\n"
+                f"{achievement['description']}\n"
                 f"Статус: <b>{status}</b>\n"
                 f"✨ XP: {achievement['xp']} | "
                 f"🪙 {achievement['coins']}"
