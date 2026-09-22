@@ -2,15 +2,6 @@ import os
 
 
 class DeveloperSystem:
-    """
-    Панель разработчика T-OS.
-
-    ID разработчика берётся из переменной окружения:
-    TOS_DEVELOPER_ID
-
-    Никогда не храним Telegram ID разработчика
-    прямо в исходном коде.
-    """
 
     def __init__(self, database):
         self.database = database
@@ -22,19 +13,11 @@ class DeveloperSystem:
         except (TypeError, ValueError):
             self.developer_id = None
 
-    # =====================================================
-    # ACCESS
-    # =====================================================
-
     def is_developer(self, user_id):
-        if not self.developer_id:
+        if self.developer_id is None:
             return False
 
         return int(user_id) == self.developer_id
-
-    # =====================================================
-    # SYSTEM INFO
-    # =====================================================
 
     def get_system_info(self):
         with self.database.connect() as connection:
@@ -57,16 +40,8 @@ class DeveloperSystem:
             "achievements": achievements
         }
 
-    # =====================================================
-    # USER INFO
-    # =====================================================
-
     def get_user(self, user_id):
         return self.database.get_user(user_id)
-
-    # =====================================================
-    # USER LIST
-    # =====================================================
 
     def get_users(self, limit=20):
         limit = max(1, min(int(limit), 100))
