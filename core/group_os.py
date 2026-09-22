@@ -1,80 +1,131 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 class GroupOS:
-    """
-    Group OS — системный слой управления Telegram-группами.
-
-    Первый этап:
-    - Group Dashboard
-    - базовая информация о группе
-    - информация о создателе/администраторах
-    - количество участников
-    - статус T-OS
-    """
-
     def __init__(self, bot):
         self.bot = bot
 
-    async def get_dashboard(self, chat_id: int) -> dict:
-        """Получить данные Group Dashboard."""
+    # ==========================================
+    # GROUP INFO
+    # ==========================================
 
-        chat = await self.bot.get_chat(chat_id)
-
-        members_count = None
-
-        try:
-            members_count = await self.bot.get_chat_member_count(chat_id)
-        except Exception:
-            pass
-
-        return {
-            "chat_id": chat.id,
-            "title": getattr(chat, "title", "Unknown"),
-            "type": getattr(chat, "type", "unknown"),
-            "username": getattr(chat, "username", None),
-            "members_count": members_count,
-            "tos_status": "active",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-    async def render_dashboard(self, chat_id: int) -> str:
-        """Сформировать текст Group Dashboard."""
-
-        data = await self.get_dashboard(chat_id)
-
-        chat_type = {
-            "group": "Группа",
-            "supergroup": "Супергруппа",
-            "channel": "Канал",
-        }.get(data["type"], data["type"])
-
-        username = (
-            f"@{data['username']}"
-            if data["username"]
-            else "нет"
+    def get_group_info(self, chat_id):
+        result = self.bot.request(
+            "getChat",
+            {
+                "chat_id": chat_id
+            }
         )
 
-        members = (
-            str(data["members_count"])
-            if data["members_count"] is not None
-            else "недоступно"
+        if not result or not result.get("ok"):
+            return None
+
+        return result.get("result")
+
+    # ==========================================
+    # MEMBER COUNT
+    # ==========================================
+
+    def get_member_count(self, chat_id):
+        result = self.bot.request(
+            "getChatMemberCount",
+            {
+                "chat_id": chat_id
+            }
         )
 
-        return (
-            "🖥 <b>Group OS</b>\n\n"
-            "🏠 <b>Group Dashboard</b>\n\n"
-            f"📌 <b>Название:</b> {data['title']}\n"
-            f"🆔 <b>ID:</b> <code>{data['chat_id']}</code>\n"
-            f"💬 <b>Тип:</b> {chat_type}\n"
-            f"🔗 <b>Username:</b> {username}\n"
-            f"👥 <b>Участников:</b> {members}\n\n"
-            "🟢 <b>T-OS:</b> активна\n\n"
-            "⚙️ <b>Group OS</b>\n"
-            "├ 👥 Members\n"
-            "├ 🛡 Moderation\n"
-            "├ 📜 Group Audit Log\n"
-            "├ ⚙️ Permissions\n"
-            "├ 🤖 AI Settings\n"
-            "└ 📊 Statistics"
+        if not result or not result.get("ok"):
+            return 0
+
+        return result.get("result", 0)
+
+    # ==========================================
+    # ADMINISTRATORS
+    # ==========================================
+
+    def get_administrators(self, chat_id):
+        result = self.bot.request(
+            "getChatAdministrators",
+            {
+                "chat_id": chat_id
+            }
         )
+
+        if not result or not result.get("ok"):
+            return []
+
+        return result.get("result", [])
+
+    # ==========================================
+    # MEMBERS SCREEN
+    # ==========================================
+
+    def render_members(self, chat_id):
+        chat = self.get_group_info(chat_id)
+
+        if not chat:
+            return "❌ Не удалось получить информацию о группе."
+
+        member_count = self.get_member_count(chat_id)
+        administrators = self.get_administrators(chat_id)
+
+        lines = [
+            "🖥️ <b>T-OS GROUP OS</b>",
+            "",
+            "👥 <b>УЧАСТНИКИ ГРУППЫ</b>",
+            "",
+            f"👥 <b>Всего участников:</b> {member_count}",
+            "",
+            "👑 <b>АДМИНИСТРАТОРЫ</b>",
+            ""
+        ]
+
+        if not administrators:
+            lines.append("Нет данных об администраторах.")
+        else:
+            for admin in administrators:
+                user = admin.get("user", {})
+
+                user_id = user.get("id")
+                first_name = user.get("first_name", "")
+                last_name = user.get("last_name", "")
+                username = user.get("username")
+
+                name = f"{first_name} {last_name}".strip()
+
+                if not name:
+                    name = "Без имени"
+
+                if username:
+                    display = f"{name} (@{username})"
+                else:
+                    display = name
+
+                status = admin.get("status", "")
+
+                if status == "creator":
+                    role = "👑 Владелец"
+                elif status == "administrator":
+                    role = "🛡 Администратор"
+                else:
+                    role = "👤"
+
+                lines.append(
+                    f"{role} {display}"
+                )
+
+                lines.append(
+                    f"   🆔 <code>{user_id}</code>"
+                )
+
+        lines.extend([
+            "",
+            "ℹ️ <i>Telegram не предоставляет ботам полный список участников группы.</i>",
+            "📡 <i>Доступны администраторы и общее количество участников.</i>",
+            "",
+            f"🟢 <b>T-OS:</b> ACTIVE",
+            "",
+            f"🕐 <b>Обновлено:</b> {datetime.now().strftime('%H:%M:%S')}"
+        ])
+
+        return "\n".join(lines)
