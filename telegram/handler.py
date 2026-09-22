@@ -1,11 +1,15 @@
 from telegram.bot import TelegramBot
 from datetime import datetime
 
+from games import GamesSystem
+
 
 class TelegramHandler:
     def __init__(self, bot, database):
         self.bot = bot
         self.database = database
+
+        self.games = GamesSystem(database)
 
         self.file_states = {}
         self.terminal_dirs = {}
@@ -35,15 +39,65 @@ class TelegramHandler:
             user.get("username")
         )
 
-        # Первое достижение
         self.database.unlock_achievement(
             user_id,
             "First Login"
         )
 
-        # -------------------------
+        # =====================================================
+        # ACTIVE GAME
+        # =====================================================
+
+        active_game = self.games.get_active_game(
+            user_id
+        )
+
+        if active_game:
+            result = None
+
+            game_type = active_game.get("type")
+
+            if game_type == "guess":
+                result = self.games.check_guess(
+                    user_id,
+                    text
+                )
+
+            elif game_type == "quiz":
+                result = self.games.check_quiz(
+                    user_id,
+                    text
+                )
+
+            elif game_type == "riddle":
+                result = self.games.check_riddle(
+                    user_id,
+                    text
+                )
+
+            elif game_type == "reaction":
+                result = self.games.check_reaction(
+                    user_id,
+                    text
+                )
+
+            if result:
+                self.send_message(
+                    chat_id,
+                    result["message"]
+                )
+
+                if result.get("finished"):
+                    self.show_games(
+                        chat_id,
+                        user_id
+                    )
+
+                return
+
+        # =====================================================
         # FILE STATES
-        # -------------------------
+        # =====================================================
 
         state = self.file_states.get(user_id)
 
@@ -56,7 +110,11 @@ class TelegramHandler:
             return
 
         if state and state.startswith("editing:"):
-            path = state.replace("editing:", "", 1)
+            path = state.replace(
+                "editing:",
+                "",
+                1
+            )
 
             self.save_file_content(
                 chat_id,
@@ -69,7 +127,11 @@ class TelegramHandler:
         if state and state.startswith("opened:"):
 
             if text == "✏️ Редактировать":
-                path = state.replace("opened:", "", 1)
+                path = state.replace(
+                    "opened:",
+                    "",
+                    1
+                )
 
                 self.start_editing(
                     chat_id,
@@ -79,13 +141,20 @@ class TelegramHandler:
                 return
 
             if text == "📁 Файлы":
-                self.file_states.pop(user_id, None)
-                self.show_files(chat_id, user_id)
+                self.file_states.pop(
+                    user_id,
+                    None
+                )
+
+                self.show_files(
+                    chat_id,
+                    user_id
+                )
                 return
 
-        # -------------------------
+        # =====================================================
         # TERMINAL
-        # -------------------------
+        # =====================================================
 
         if text.startswith("$"):
             self.handle_terminal(
@@ -95,12 +164,19 @@ class TelegramHandler:
             )
             return
 
-        # -------------------------
+        # =====================================================
         # COMMANDS
-        # -------------------------
+        # =====================================================
 
         if text == "/start":
-            self.file_states.pop(user_id, None)
+            self.file_states.pop(
+                user_id,
+                None
+            )
+
+            self.games.cancel_game(
+                user_id
+            )
 
             self.database.add_xp(
                 user_id,
@@ -121,16 +197,30 @@ class TelegramHandler:
                 user_id
             )
 
-        # -------------------------
+        # =====================================================
         # MENU
-        # -------------------------
+        # =====================================================
 
         elif text == "📁 Файлы":
-            self.file_states.pop(user_id, None)
-            self.show_files(chat_id, user_id)
+            self.file_states.pop(
+                user_id,
+                None
+            )
+
+            self.games.cancel_game(
+                user_id
+            )
+
+            self.show_files(
+                chat_id,
+                user_id
+            )
 
         elif text == "📄 Создать файл":
-            self.ask_filename(chat_id, user_id)
+            self.ask_filename(
+                chat_id,
+                user_id
+            )
 
         elif text == "📂 Desktop":
             self.show_directory(
@@ -175,24 +265,78 @@ class TelegramHandler:
             )
 
         elif text == "📝 Заметки":
+            self.games.cancel_game(user_id)
             self.show_notes(chat_id)
 
         elif text == "💻 Терминал":
+            self.games.cancel_game(user_id)
+
             self.show_terminal(
                 chat_id,
                 user_id
             )
 
         elif text == "🧮 Калькулятор":
+            self.games.cancel_game(user_id)
             self.show_calculator(chat_id)
 
         elif text == "🎮 Игры":
-            self.show_games(chat_id)
+            self.show_games(
+                chat_id,
+                user_id
+            )
+
+        # =====================================================
+        # GAME MENU
+        # =====================================================
+
+        elif text == "🎲 Dice":
+            self.start_dice(
+                chat_id,
+                user_id
+            )
+
+        elif text == "🔢 Guess Number":
+            self.start_guess(
+                chat_id,
+                user_id
+            )
+
+        elif text == "🧠 Quiz":
+            self.start_quiz(
+                chat_id,
+                user_id
+            )
+
+        elif text == "🧩 Riddles":
+            self.start_riddle(
+                chat_id,
+                user_id
+            )
+
+        elif text == "⚡ Reaction":
+            self.start_reaction(
+                chat_id,
+                user_id
+            )
+
+        elif text == "❌ Выйти из игры":
+            self.games.cancel_game(
+                user_id
+            )
+
+            self.show_games(
+                chat_id,
+                user_id
+            )
 
         elif text == "⚙️ Настройки":
+            self.games.cancel_game(user_id)
             self.show_settings(chat_id)
 
         elif text == "👤 Профиль":
+            self.games.cancel_game(user_id)
+
             self.show_profile(
                 chat_id,
                 message
@@ -205,10 +349,19 @@ class TelegramHandler:
             )
 
         elif text == "📦 App Store":
+            self.games.cancel_game(user_id)
             self.show_app_store(chat_id)
 
         elif text == "🖥️ Главное меню":
-            self.file_states.pop(user_id, None)
+            self.file_states.pop(
+                user_id,
+                None
+            )
+
+            self.games.cancel_game(
+                user_id
+            )
+
             self.show_home(chat_id)
 
         elif text.startswith("📄 "):
@@ -224,7 +377,12 @@ class TelegramHandler:
     # TELEGRAM
     # =========================================================
 
-    def send_message(self, chat_id, text, keyboard=None):
+    def send_message(
+        self,
+        chat_id,
+        text,
+        keyboard=None
+    ):
         data = {
             "chat_id": chat_id,
             "text": text
@@ -342,7 +500,12 @@ class TelegramHandler:
             "test.py"
         )
 
-    def create_new_file(self, chat_id, user_id, filename):
+    def create_new_file(
+        self,
+        chat_id,
+        user_id,
+        filename
+    ):
         filename = filename.strip()
 
         if not filename:
@@ -353,7 +516,10 @@ class TelegramHandler:
             return
 
         if "/" in filename or "\\" in filename:
-            self.file_states.pop(user_id, None)
+            self.file_states.pop(
+                user_id,
+                None
+            )
 
             self.send_message(
                 chat_id,
@@ -362,7 +528,10 @@ class TelegramHandler:
             return
 
         if len(filename) > 100:
-            self.file_states.pop(user_id, None)
+            self.file_states.pop(
+                user_id,
+                None
+            )
 
             self.send_message(
                 chat_id,
@@ -370,15 +539,22 @@ class TelegramHandler:
             )
             return
 
-        self.initialize_filesystem(user_id)
+        self.initialize_filesystem(
+            user_id
+        )
 
-        path = f"/home/user/Documents/{filename}"
+        path = (
+            f"/home/user/Documents/{filename}"
+        )
 
         if self.database.path_exists(
             user_id,
             path
         ):
-            self.file_states.pop(user_id, None)
+            self.file_states.pop(
+                user_id,
+                None
+            )
 
             self.send_message(
                 chat_id,
@@ -407,7 +583,10 @@ class TelegramHandler:
                 "Explorer"
             )
 
-        self.file_states.pop(user_id, None)
+        self.file_states.pop(
+            user_id,
+            None
+        )
 
         self.send_message(
             chat_id,
@@ -417,8 +596,15 @@ class TelegramHandler:
             "✨ +5 XP"
         )
 
-    def show_directory(self, chat_id, user_id, directory):
-        self.initialize_filesystem(user_id)
+    def show_directory(
+        self,
+        chat_id,
+        user_id,
+        directory
+    ):
+        self.initialize_filesystem(
+            user_id
+        )
 
         files = self.database.get_files(
             user_id,
@@ -441,7 +627,10 @@ class TelegramHandler:
             path = file[1]
             file_type = file[2]
 
-            if path.count("/") != directory.count("/") + 1:
+            if (
+                path.count("/")
+                != directory.count("/") + 1
+            ):
                 continue
 
             found = True
@@ -476,7 +665,12 @@ class TelegramHandler:
             keyboard
         )
 
-    def open_file(self, chat_id, user_id, path):
+    def open_file(
+        self,
+        chat_id,
+        user_id,
+        path
+    ):
         file = self.database.get_file(
             user_id,
             path
@@ -501,7 +695,9 @@ class TelegramHandler:
             ]
         ]
 
-        self.file_states[user_id] = f"opened:{path}"
+        self.file_states[user_id] = (
+            f"opened:{path}"
+        )
 
         self.send_message(
             chat_id,
@@ -514,7 +710,12 @@ class TelegramHandler:
             keyboard
         )
 
-    def start_editing(self, chat_id, user_id, path):
+    def start_editing(
+        self,
+        chat_id,
+        user_id,
+        path
+    ):
         file = self.database.get_file(
             user_id,
             path
@@ -534,7 +735,9 @@ class TelegramHandler:
 
         filename = path.split("/")[-1]
 
-        self.file_states[user_id] = f"editing:{path}"
+        self.file_states[user_id] = (
+            f"editing:{path}"
+        )
 
         self.send_message(
             chat_id,
@@ -605,10 +808,18 @@ class TelegramHandler:
             "/home/user"
         )
 
-    def set_terminal_dir(self, user_id, path):
+    def set_terminal_dir(
+        self,
+        user_id,
+        path
+    ):
         self.terminal_dirs[user_id] = path
 
-    def normalize_path(self, current_dir, target):
+    def normalize_path(
+        self,
+        current_dir,
+        target
+    ):
         if target.startswith("/"):
             path = target
         else:
@@ -639,13 +850,21 @@ class TelegramHandler:
 
         return result
 
-    def terminal_output(self, chat_id, text):
+    def terminal_output(
+        self,
+        chat_id,
+        text
+    ):
         self.send_message(
             chat_id,
             text
         )
 
-    def add_history(self, user_id, command):
+    def add_history(
+        self,
+        user_id,
+        command
+    ):
         if user_id not in self.command_history:
             self.command_history[user_id] = []
 
@@ -657,7 +876,12 @@ class TelegramHandler:
             self.command_history[user_id][-50:]
         )
 
-    def handle_terminal(self, chat_id, user_id, text):
+    def handle_terminal(
+        self,
+        chat_id,
+        user_id,
+        text
+    ):
         command_line = text.strip()
 
         if not command_line.startswith("$"):
@@ -678,18 +902,15 @@ class TelegramHandler:
             command_line
         )
 
-        # Статистика команд
         self.database.increment_commands(
             user_id
         )
 
-        # XP за использование терминала
         self.database.add_xp(
             user_id,
             1
         )
 
-        # Достижение Terminal User
         self.database.unlock_achievement(
             user_id,
             "Terminal User"
@@ -1527,7 +1748,10 @@ class TelegramHandler:
         for file in files:
             path = file[1]
 
-            if path.count("/") != directory.count("/") + 1:
+            if (
+                path.count("/")
+                != directory.count("/") + 1
+            ):
                 continue
 
             children.append(file)
@@ -1536,9 +1760,15 @@ class TelegramHandler:
             path = file[1]
             file_type = file[2]
 
-            is_last = index == len(children) - 1
+            is_last = (
+                index == len(children) - 1
+            )
 
-            branch = "└── " if is_last else "├── "
+            branch = (
+                "└── "
+                if is_last
+                else "├── "
+            )
 
             name = path.split("/")[-1]
 
@@ -1572,10 +1802,14 @@ class TelegramHandler:
                 )
 
     # =========================================================
-    # OTHER APPS
+    # TERMINAL APP
     # =========================================================
 
-    def show_terminal(self, chat_id, user_id):
+    def show_terminal(
+        self,
+        chat_id,
+        user_id
+    ):
         current_dir = self.get_terminal_dir(
             user_id
         )
@@ -1606,8 +1840,15 @@ class TelegramHandler:
     # PROFILE
     # =========================================================
 
-    def show_profile(self, chat_id, message):
-        user_info = message.get("from", {})
+    def show_profile(
+        self,
+        chat_id,
+        message
+    ):
+        user_info = message.get(
+            "from",
+            {}
+        )
 
         user_id = user_info.get(
             "id"
@@ -1666,7 +1907,11 @@ class TelegramHandler:
     # ACHIEVEMENTS
     # =========================================================
 
-    def show_achievements(self, chat_id, user_id):
+    def show_achievements(
+        self,
+        chat_id,
+        user_id
+    ):
         achievements = self.database.get_achievements(
             user_id
         )
@@ -1766,16 +2011,170 @@ class TelegramHandler:
     # GAMES
     # =========================================================
 
-    def show_games(self, chat_id):
+    def show_games(
+        self,
+        chat_id,
+        user_id=None
+    ):
+        keyboard = [
+            [
+                {"text": "🎲 Dice"},
+                {"text": "🔢 Guess Number"}
+            ],
+            [
+                {"text": "🧠 Quiz"},
+                {"text": "🧩 Riddles"}
+            ],
+            [
+                {"text": "⚡ Reaction"}
+            ],
+            [
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
         self.send_message(
             chat_id,
-            "🎮 ИГРЫ T-OS\n\n"
-            "🎲 Dice\n"
-            "🧠 Quiz\n"
-            "🔢 Guess Number\n"
-            "🧩 Riddles\n"
-            "⚡ Reaction\n\n"
-            "Игровая система находится в разработке."
+            "🎮 T-OS GAMES\n\n"
+            "Выберите игру:\n\n"
+            "🎲 Dice — бросок кубика\n"
+            "🔢 Guess Number — угадай число\n"
+            "🧠 Quiz — викторина\n"
+            "🧩 Riddles — загадки\n"
+            "⚡ Reaction — реакция\n\n"
+            "⭐ За игры можно получать XP\n"
+            "🪙 За игры можно получать T-Coins",
+            keyboard
+        )
+
+    def start_dice(
+        self,
+        chat_id,
+        user_id
+    ):
+        self.games.cancel_game(
+            user_id
+        )
+
+        result, won = self.games.start_dice(
+            user_id
+        )
+
+        if won:
+            result_text = (
+                "🎉 Отличный бросок!"
+            )
+            reward = (
+                "⭐ +10 XP\n"
+                "🪙 +10 T-Coins"
+            )
+        else:
+            result_text = (
+                "🙂 В этот раз не повезло."
+            )
+            reward = (
+                "⭐ +10 XP\n"
+                "🪙 +2 T-Coins"
+            )
+
+        self.send_message(
+            chat_id,
+            "🎲 DICE\n\n"
+            f"Выпало: {result}\n\n"
+            f"{result_text}\n\n"
+            f"{reward}"
+        )
+
+        self.show_games(
+            chat_id,
+            user_id
+        )
+
+    def start_guess(
+        self,
+        chat_id,
+        user_id
+    ):
+        message = self.games.start_guess(
+            user_id
+        )
+
+        keyboard = [
+            [
+                {"text": "❌ Выйти из игры"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            message,
+            keyboard
+        )
+
+    def start_quiz(
+        self,
+        chat_id,
+        user_id
+    ):
+        message = self.games.start_quiz(
+            user_id
+        )
+
+        keyboard = [
+            [
+                {"text": "❌ Выйти из игры"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            message,
+            keyboard
+        )
+
+    def start_riddle(
+        self,
+        chat_id,
+        user_id
+    ):
+        message = self.games.start_riddle(
+            user_id
+        )
+
+        keyboard = [
+            [
+                {"text": "❌ Выйти из игры"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            message,
+            keyboard
+        )
+
+    def start_reaction(
+        self,
+        chat_id,
+        user_id
+    ):
+        message = self.games.start_reaction(
+            user_id
+        )
+
+        keyboard = [
+            [
+                {"text": "⚡"}
+            ],
+            [
+                {"text": "❌ Выйти из игры"}
+            ]
+        ]
+
+        self.send_message(
+            chat_id,
+            message,
+            keyboard
         )
 
     # =========================================================
