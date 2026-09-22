@@ -5,6 +5,7 @@ class TelegramHandler:
     def __init__(self, bot, database):
         self.bot = bot
         self.database = database
+        self.file_states = {}
 
     def handle_update(self, update):
         message = update.get("message")
@@ -24,11 +25,26 @@ class TelegramHandler:
                 user.get("username")
             )
 
+        # Состояние создания файла
+        state = self.file_states.get(user_id)
+
+        if state == "waiting_filename":
+            self.create_new_file(
+                chat_id,
+                user_id,
+                text
+            )
+            return
+
+        # Главное меню
         if text == "/start":
             self.show_home(chat_id)
 
         elif text == "📁 Файлы":
             self.show_files(chat_id, user_id)
+
+        elif text == "📄 Создать файл":
+            self.ask_filename(chat_id, user_id)
 
         elif text == "📂 Desktop":
             self.show_directory(
@@ -173,6 +189,9 @@ class TelegramHandler:
                 {"text": "📂 Trash"}
             ],
             [
+                {"text": "📄 Создать файл"}
+            ],
+            [
                 {"text": "🖥️ Главное меню"}
             ]
         ]
@@ -181,8 +200,79 @@ class TelegramHandler:
             chat_id,
             "📁 ФАЙЛЫ T-OS\n\n"
             "📍 /home/user/\n\n"
-            "Выберите папку:",
+            "Выберите папку или действие:",
             keyboard
+        )
+
+    def ask_filename(self, chat_id, user_id):
+        self.file_states[user_id] = "waiting_filename"
+
+        self.send_message(
+            chat_id,
+            "📄 Введите имя файла:\n\n"
+            "Например:\n"
+            "hello.txt\n"
+            "notes.md\n"
+            "test.py"
+        )
+
+    def create_new_file(self, chat_id, user_id, filename):
+        filename = filename.strip()
+
+        if not filename:
+            self.send_message(
+                chat_id,
+                "❌ Имя файла не может быть пустым."
+            )
+            return
+
+        if "/" in filename or "\\" in filename:
+            self.send_message(
+                chat_id,
+                "❌ В имени файла нельзя использовать / или \\."
+            )
+            return
+
+        if len(filename) > 100:
+            self.send_message(
+                chat_id,
+                "❌ Имя файла слишком длинное."
+            )
+            return
+
+        self.initialize_filesystem(user_id)
+
+        path = f"/home/user/Documents/{filename}"
+
+        existing = self.database.get_file(
+            user_id,
+            path
+        )
+
+        if existing:
+            self.file_states.pop(user_id, None)
+
+            self.send_message(
+                chat_id,
+                f"❌ Файл `{filename}` уже существует."
+            )
+            return
+
+        self.database.create_file(
+            user_id,
+            path,
+            file_type="file",
+            content=""
+        )
+
+        self.file_states.pop(user_id, None)
+
+        self.send_message(
+            chat_id,
+            f"✅ Файл создан!\n\n"
+            f"📄 {filename}\n"
+            f"📍 {path}\n\n"
+            "Файл пока пустой."
         )
 
     def show_directory(self, chat_id, user_id, directory):
@@ -210,7 +300,6 @@ class TelegramHandler:
                 continue
 
             found = True
-
             filename = path.split("/")[-1]
 
             if file_type == "directory":
@@ -221,15 +310,17 @@ class TelegramHandler:
         if not found:
             lines.append("Папка пуста.")
 
+        keyboard = [
+            [
+                {"text": "📁 Файлы"},
+                {"text": "🖥️ Главное меню"}
+            ]
+        ]
+
         self.send_message(
             chat_id,
             "\n".join(lines),
-            [
-                [
-                    {"text": "📁 Файлы"},
-                    {"text": "🖥️ Главное меню"}
-                ]
-            ]
+            keyboard
         )
 
     def show_profile(self, chat_id, message):
