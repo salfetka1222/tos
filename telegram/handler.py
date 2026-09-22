@@ -146,9 +146,7 @@ class TelegramHandler:
                 "👥 <b>Group OS</b>\n"
                 "Инструменты управления группой.\n\n"
                 "🛠 <b>Dev Panel</b>\n"
-                "Панель разработчика.\n\n"
-                "Используйте /start, чтобы "
-                "вернуться в главное меню."
+                "Панель разработчика."
             ),
             keyboard
         )
@@ -273,20 +271,12 @@ class TelegramHandler:
             )
             return
 
-        # -----------------------------------------------------
-        # MY FILES
-        # -----------------------------------------------------
-
         if text == "📂 Мои файлы":
             self.filesystem.show_files(
                 chat_id,
                 user_id
             )
             return
-
-        # -----------------------------------------------------
-        # CREATE FILE
-        # -----------------------------------------------------
 
         if text == "📄 Создать файл":
             self.filesystem.create_file_start(
@@ -295,20 +285,12 @@ class TelegramHandler:
             )
             return
 
-        # -----------------------------------------------------
-        # CREATE FOLDER
-        # -----------------------------------------------------
-
         if text == "📁 Создать папку":
             self.filesystem.create_folder_start(
                 chat_id,
                 user_id
             )
             return
-
-        # -----------------------------------------------------
-        # REFRESH
-        # -----------------------------------------------------
 
         if text == "🔄 Обновить":
             self.filesystem.show_files(
@@ -317,10 +299,6 @@ class TelegramHandler:
             )
             return
 
-        # -----------------------------------------------------
-        # BACK
-        # -----------------------------------------------------
-
         if text == "⬅️ Назад":
             self.filesystem.go_back(
                 chat_id,
@@ -328,9 +306,9 @@ class TelegramHandler:
             )
             return
 
-        # -----------------------------------------------------
+        # =====================================================
         # EDIT FILE
-        # -----------------------------------------------------
+        # =====================================================
 
         if text == "✏️ Изменить файл":
             state = self.filesystem.states.get(
@@ -348,17 +326,12 @@ class TelegramHandler:
                     user_id,
                     path
                 )
-            else:
-                self.filesystem.show_files(
-                    chat_id,
-                    user_id
-                )
 
             return
 
-        # -----------------------------------------------------
+        # =====================================================
         # DELETE FILE
-        # -----------------------------------------------------
+        # =====================================================
 
         if text == "🗑 Удалить файл":
             state = self.filesystem.states.get(
@@ -376,17 +349,12 @@ class TelegramHandler:
                     user_id,
                     path
                 )
-            else:
-                self.filesystem.show_files(
-                    chat_id,
-                    user_id
-                )
 
             return
 
-        # -----------------------------------------------------
+        # =====================================================
         # OPEN FILE
-        # -----------------------------------------------------
+        # =====================================================
 
         if text.startswith("📄 "):
             name = text[2:].strip()
@@ -413,9 +381,9 @@ class TelegramHandler:
 
             return
 
-        # -----------------------------------------------------
+        # =====================================================
         # OPEN FOLDER
-        # -----------------------------------------------------
+        # =====================================================
 
         if text.startswith("📁 "):
             name = text[2:].strip()
@@ -448,7 +416,7 @@ class TelegramHandler:
         # =====================================================
 
         if text == "👥 Group OS":
-            self.group.show_dashboard(
+            self.group.show_group_dashboard(
                 chat_id,
                 user_id
             )
@@ -496,15 +464,15 @@ class TelegramHandler:
             )
             return
 
-        if text == "🖥️ Главное меню":
-            self.show_main_menu(
+        if text == "⬅️ Назад в Group OS":
+            self.group.show_group_dashboard(
                 chat_id,
                 user_id
             )
             return
 
-        if text == "⬅️ Назад в Group OS":
-            self.group.show_dashboard(
+        if text == "🖥️ Главное меню":
+            self.show_main_menu(
                 chat_id,
                 user_id
             )
