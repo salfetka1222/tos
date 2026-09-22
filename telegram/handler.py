@@ -4,6 +4,7 @@ from core.group_os import GroupOS
 from telegram.handlers.group import GroupHandler
 from telegram.handlers.developer import DeveloperHandler
 from telegram.handlers.filesystem import FilesystemHandler
+from telegram.handlers.terminal import TerminalHandler
 
 
 class TelegramHandler:
@@ -11,10 +12,6 @@ class TelegramHandler:
     def __init__(self, bot, database):
         self.bot = bot
         self.database = database
-
-        # =====================================================
-        # SYSTEMS
-        # =====================================================
 
         self.developer = DeveloperSystem(
             database
@@ -24,10 +21,6 @@ class TelegramHandler:
             bot,
             database
         )
-
-        # =====================================================
-        # HANDLERS
-        # =====================================================
 
         self.group = GroupHandler(
             bot,
@@ -46,9 +39,11 @@ class TelegramHandler:
             database
         )
 
-    # =========================================================
-    # TELEGRAM
-    # =========================================================
+        self.terminal = TerminalHandler(
+            bot,
+            database,
+            self.filesystem
+        )
 
     def send_message(
         self,
@@ -73,10 +68,6 @@ class TelegramHandler:
         except Exception:
             return None
 
-    # =========================================================
-    # MAIN MENU
-    # =========================================================
-
     def show_main_menu(
         self,
         chat_id,
@@ -88,6 +79,11 @@ class TelegramHandler:
                     {
                         "text": "📁 Файловая система"
                     },
+                    {
+                        "text": "💻 Terminal"
+                    }
+                ],
+                [
                     {
                         "text": "👥 Group OS"
                     }
@@ -117,10 +113,6 @@ class TelegramHandler:
             keyboard
         )
 
-    # =========================================================
-    # HELP
-    # =========================================================
-
     def show_help(
         self,
         chat_id,
@@ -143,6 +135,8 @@ class TelegramHandler:
                 "ℹ️ <b>ПОМОЩЬ T-OS</b>\n\n"
                 "📁 <b>Файловая система</b>\n"
                 "Работа с файлами и папками.\n\n"
+                "💻 <b>Terminal</b>\n"
+                "Командная строка T-OS.\n\n"
                 "👥 <b>Group OS</b>\n"
                 "Инструменты управления группой.\n\n"
                 "🛠 <b>Dev Panel</b>\n"
@@ -150,10 +144,6 @@ class TelegramHandler:
             ),
             keyboard
         )
-
-    # =========================================================
-    # UPDATE
-    # =========================================================
 
     def handle_update(
         self,
@@ -200,9 +190,20 @@ class TelegramHandler:
 
         text = text.strip()
 
-        # =====================================================
-        # FILESYSTEM STATE
-        # =====================================================
+        # =========================
+        # TERMINAL COMMANDS
+        # =========================
+
+        if self.terminal.handle_command(
+            chat_id,
+            user_id,
+            text
+        ):
+            return
+
+        # =========================
+        # FILESYSTEM STATES
+        # =========================
 
         if self.filesystem.handle_state_input(
             chat_id,
@@ -211,9 +212,9 @@ class TelegramHandler:
         ):
             return
 
-        # =====================================================
-        # START
-        # =====================================================
+        # =========================
+        # MAIN MENU
+        # =========================
 
         if text == "/start":
             self.filesystem.cancel(
@@ -226,10 +227,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # MAIN MENU
-        # =====================================================
-
         if text == "🏠 Главная":
             self.filesystem.cancel(
                 user_id
@@ -240,10 +237,6 @@ class TelegramHandler:
                 user_id
             )
             return
-
-        # =====================================================
-        # HELP
-        # =====================================================
 
         if text == "ℹ️ Помощь":
             self.filesystem.cancel(
@@ -256,9 +249,71 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
+        # =========================
+        # TERMINAL
+        # =========================
+
+        if text == "💻 Terminal":
+            self.filesystem.cancel(
+                user_id
+            )
+
+            self.terminal.show_terminal(
+                chat_id,
+                user_id
+            )
+            return
+
+        if text == "📂 ls":
+            self.terminal.command_ls(
+                chat_id,
+                user_id
+            )
+            return
+
+        if text == "📍 pwd":
+            self.terminal.command_pwd(
+                chat_id,
+                user_id
+            )
+            return
+
+        if text == "📁 mkdir":
+            self.send_message(
+                chat_id,
+                (
+                    "📁 <b>MKDIR</b>\n\n"
+                    "Использование:\n"
+                    "<code>/mkdir имя_папки</code>\n\n"
+                    "Например:\n"
+                    "<code>/mkdir documents</code>"
+                )
+            )
+            return
+
+        if text == "📄 touch":
+            self.send_message(
+                chat_id,
+                (
+                    "📄 <b>TOUCH</b>\n\n"
+                    "Использование:\n"
+                    "<code>/touch имя_файла</code>\n\n"
+                    "Например:\n"
+                    "<code>/touch hello.txt</code>"
+                )
+            )
+            return
+
+        if text == "🧹 clear":
+            self.terminal.command_clear(
+                chat_id,
+                user_id
+            )
+            return
+
+        # =========================
         # FILESYSTEM
-        # =====================================================
+        # =========================
 
         if text == "📁 Файловая система":
             self.filesystem.cancel(
@@ -306,10 +361,6 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
-        # EDIT FILE
-        # =====================================================
-
         if text == "✏️ Изменить файл":
             state = self.filesystem.states.get(
                 user_id,
@@ -328,10 +379,6 @@ class TelegramHandler:
                 )
 
             return
-
-        # =====================================================
-        # DELETE FILE
-        # =====================================================
 
         if text == "🗑 Удалить файл":
             state = self.filesystem.states.get(
@@ -352,9 +399,9 @@ class TelegramHandler:
 
             return
 
-        # =====================================================
-        # OPEN FILE
-        # =====================================================
+        # =========================
+        # FILE / FOLDER BUTTONS
+        # =========================
 
         if text.startswith("📄 "):
             name = text[2:].strip()
@@ -380,10 +427,6 @@ class TelegramHandler:
             )
 
             return
-
-        # =====================================================
-        # OPEN FOLDER
-        # =====================================================
 
         if text.startswith("📁 "):
             name = text[2:].strip()
@@ -411,9 +454,9 @@ class TelegramHandler:
 
             return
 
-        # =====================================================
+        # =========================
         # GROUP OS
-        # =====================================================
+        # =========================
 
         if text == "👥 Group OS":
             self.group.show_group_dashboard(
@@ -478,9 +521,9 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
+        # =========================
         # DEVELOPER PANEL
-        # =====================================================
+        # =========================
 
         if text == "/dev":
             self.dev.show_panel(
@@ -538,24 +581,21 @@ class TelegramHandler:
             )
             return
 
-        # =====================================================
+        # =========================
         # UNKNOWN COMMAND
-        # =====================================================
+        # =========================
 
         if text.startswith("/"):
             self.send_message(
                 chat_id,
                 (
                     "❌ Неизвестная команда.\n\n"
-                    "Используйте /start для открытия "
-                    "главного меню."
+                    "Используйте <code>/help</code> "
+                    "в Terminal или <code>/start</code> "
+                    "для главного меню."
                 )
             )
             return
-
-        # =====================================================
-        # UNKNOWN TEXT
-        # =====================================================
 
         self.send_message(
             chat_id,
