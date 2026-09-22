@@ -12,7 +12,6 @@ class Database:
         return connection
 
     def initialize(self):
-
         with self.connect() as connection:
 
             connection.execute("""
@@ -51,10 +50,6 @@ class Database:
                     UNIQUE(user_id, achievement)
                 )
             """)
-
-            # =============================================
-            # AUDIT LOG
-            # =============================================
 
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS audit_log (
@@ -96,7 +91,6 @@ class Database:
         for column, definition in migrations.items():
 
             if column not in columns:
-
                 connection.execute(
                     f"""
                     ALTER TABLE users
@@ -167,6 +161,72 @@ class Database:
             )
 
             return cursor.fetchone()
+
+    def get_users(self, limit=100):
+
+        limit = max(
+            1,
+            min(int(limit), 500)
+        )
+
+        with self.connect() as connection:
+
+            cursor = connection.execute(
+                """
+                SELECT
+                    user_id,
+                    username,
+                    level,
+                    xp,
+                    coins,
+                    commands,
+                    games_played,
+                    games_won,
+                    created_at
+                FROM users
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,)
+            )
+
+            return cursor.fetchall()
+
+    # =====================================================
+    # STATISTICS
+    # =====================================================
+
+    def get_statistics(self):
+
+        with self.connect() as connection:
+
+            users = connection.execute(
+                "SELECT COUNT(*) FROM users"
+            ).fetchone()[0]
+
+            files = connection.execute(
+                "SELECT COUNT(*) FROM files"
+            ).fetchone()[0]
+
+            games = connection.execute(
+                "SELECT COALESCE(SUM(games_played), 0) FROM users"
+            ).fetchone()[0]
+
+            commands = connection.execute(
+                "SELECT COALESCE(SUM(commands), 0) FROM users"
+            ).fetchone()[0]
+
+            audit_logs = connection.execute(
+                "SELECT COUNT(*) FROM audit_log"
+            ).fetchone()[0]
+
+            return {
+                "users": users,
+                "files": files,
+                "games": games,
+                "commands": commands,
+                "audit_logs": audit_logs
+            }
 
     # =====================================================
     # XP / LEVEL
@@ -495,7 +555,49 @@ class Database:
         directory
     ):
 
-        prefix = directory.rstrip("/") + "/"
+        if not directory or directory == "/":
+            prefix = ""
+        else:
+            prefix = directory.strip("/") + "/"
+
+        with self.connect() as connection:
+
+            if prefix:
+                cursor = connection.execute(
+                    """
+                    SELECT
+                        id,
+                        path,
+                        file_type,
+                        content
+                    FROM files
+                    WHERE user_id = ?
+                    AND path LIKE ?
+                    ORDER BY file_type DESC, path ASC
+                    """,
+                    (
+                        user_id,
+                        prefix + "%"
+                    )
+                )
+            else:
+                cursor = connection.execute(
+                    """
+                    SELECT
+                        id,
+                        path,
+                        file_type,
+                        content
+                    FROM files
+                    WHERE user_id = ?
+                    ORDER BY file_type DESC, path ASC
+                    """,
+                    (user_id,)
+                )
+
+            return cursor.fetchall()
+
+    def get_all_files(self):
 
         with self.connect() as connection:
 
@@ -503,18 +605,15 @@ class Database:
                 """
                 SELECT
                     id,
+                    user_id,
                     path,
                     file_type,
-                    content
+                    content,
+                    created_at,
+                    updated_at
                 FROM files
-                WHERE user_id = ?
-                AND path LIKE ?
-                ORDER BY file_type DESC, path ASC
-                """,
-                (
-                    user_id,
-                    prefix + "%"
-                )
+                ORDER BY id DESC
+                """
             )
 
             return cursor.fetchall()
