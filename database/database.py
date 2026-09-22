@@ -2,6 +2,7 @@ import sqlite3
 
 
 class Database:
+
     def __init__(self, path="tos.db"):
         self.path = path
 
@@ -11,11 +12,8 @@ class Database:
         return connection
 
     def initialize(self):
-        with self.connect() as connection:
 
-            # =========================
-            # USERS
-            # =========================
+        with self.connect() as connection:
 
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -31,10 +29,6 @@ class Database:
                 )
             """)
 
-            # =========================
-            # FILES
-            # =========================
-
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS files (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,10 +42,6 @@ class Database:
                 )
             """)
 
-            # =========================
-            # ACHIEVEMENTS
-            # =========================
-
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS achievements (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,15 +52,30 @@ class Database:
                 )
             """)
 
+            # =============================================
+            # AUDIT LOG
+            # =============================================
+
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    target_id INTEGER,
+                    details TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             connection.commit()
 
             self._migrate_users(connection)
 
+    # =====================================================
+    # MIGRATIONS
+    # =====================================================
+
     def _migrate_users(self, connection):
-        """
-        Добавляет новые колонки пользователям,
-        если база была создана старой версией T-OS.
-        """
 
         cursor = connection.execute(
             "PRAGMA table_info(users)"
@@ -91,18 +96,26 @@ class Database:
         for column, definition in migrations.items():
 
             if column not in columns:
+
                 connection.execute(
-                    f"ALTER TABLE users ADD COLUMN "
-                    f"{column} {definition}"
+                    f"""
+                    ALTER TABLE users
+                    ADD COLUMN {column} {definition}
+                    """
                 )
 
         connection.commit()
 
-    # =========================================================
+    # =====================================================
     # USERS
-    # =========================================================
+    # =====================================================
 
-    def create_user(self, user_id, username=None):
+    def create_user(
+        self,
+        user_id,
+        username=None
+    ):
+
         with self.connect() as connection:
 
             connection.execute(
@@ -111,7 +124,10 @@ class Database:
                 (user_id, username)
                 VALUES (?, ?)
                 """,
-                (user_id, username)
+                (
+                    user_id,
+                    username
+                )
             )
 
             connection.execute(
@@ -120,12 +136,16 @@ class Database:
                 SET username = ?
                 WHERE user_id = ?
                 """,
-                (username, user_id)
+                (
+                    username,
+                    user_id
+                )
             )
 
             connection.commit()
 
     def get_user(self, user_id):
+
         with self.connect() as connection:
 
             cursor = connection.execute(
@@ -148,7 +168,16 @@ class Database:
 
             return cursor.fetchone()
 
-    def add_xp(self, user_id, amount):
+    # =====================================================
+    # XP / LEVEL
+    # =====================================================
+
+    def add_xp(
+        self,
+        user_id,
+        amount
+    ):
+
         if amount <= 0:
             return
 
@@ -160,7 +189,10 @@ class Database:
                 SET xp = xp + ?
                 WHERE user_id = ?
                 """,
-                (amount, user_id)
+                (
+                    amount,
+                    user_id
+                )
             )
 
             connection.commit()
@@ -168,6 +200,7 @@ class Database:
         self.update_level(user_id)
 
     def update_level(self, user_id):
+
         with self.connect() as connection:
 
             user = connection.execute(
@@ -185,7 +218,6 @@ class Database:
             xp = user["xp"]
             current_level = user["level"]
 
-            # Каждые 100 XP = следующий уровень
             new_level = max(
                 1,
                 (xp // 100) + 1
@@ -207,7 +239,16 @@ class Database:
 
                 connection.commit()
 
-    def add_coins(self, user_id, amount):
+    # =====================================================
+    # COINS
+    # =====================================================
+
+    def add_coins(
+        self,
+        user_id,
+        amount
+    ):
+
         with self.connect() as connection:
 
             connection.execute(
@@ -216,12 +257,20 @@ class Database:
                 SET coins = coins + ?
                 WHERE user_id = ?
                 """,
-                (amount, user_id)
+                (
+                    amount,
+                    user_id
+                )
             )
 
             connection.commit()
 
-    def remove_coins(self, user_id, amount):
+    def remove_coins(
+        self,
+        user_id,
+        amount
+    ):
+
         if amount <= 0:
             return False
 
@@ -248,14 +297,22 @@ class Database:
                 SET coins = coins - ?
                 WHERE user_id = ?
                 """,
-                (amount, user_id)
+                (
+                    amount,
+                    user_id
+                )
             )
 
             connection.commit()
 
             return True
 
+    # =====================================================
+    # COMMANDS
+    # =====================================================
+
     def increment_commands(self, user_id):
+
         with self.connect() as connection:
 
             connection.execute(
@@ -269,7 +326,16 @@ class Database:
 
             connection.commit()
 
-    def increment_games(self, user_id, won=False):
+    # =====================================================
+    # GAMES
+    # =====================================================
+
+    def increment_games(
+        self,
+        user_id,
+        won=False
+    ):
+
         with self.connect() as connection:
 
             connection.execute(
@@ -282,6 +348,7 @@ class Database:
             )
 
             if won:
+
                 connection.execute(
                     """
                     UPDATE users
@@ -293,11 +360,16 @@ class Database:
 
             connection.commit()
 
-    # =========================================================
+    # =====================================================
     # ACHIEVEMENTS
-    # =========================================================
+    # =====================================================
 
-    def unlock_achievement(self, user_id, achievement):
+    def unlock_achievement(
+        self,
+        user_id,
+        achievement
+    ):
+
         with self.connect() as connection:
 
             cursor = connection.execute(
@@ -316,7 +388,12 @@ class Database:
 
             return cursor.rowcount > 0
 
-    def has_achievement(self, user_id, achievement):
+    def has_achievement(
+        self,
+        user_id,
+        achievement
+    ):
+
         with self.connect() as connection:
 
             cursor = connection.execute(
@@ -334,12 +411,18 @@ class Database:
 
             return cursor.fetchone() is not None
 
-    def get_achievements(self, user_id):
+    def get_achievements(
+        self,
+        user_id
+    ):
+
         with self.connect() as connection:
 
             cursor = connection.execute(
                 """
-                SELECT achievement, unlocked_at
+                SELECT
+                    achievement,
+                    unlocked_at
                 FROM achievements
                 WHERE user_id = ?
                 ORDER BY unlocked_at ASC
@@ -349,9 +432,9 @@ class Database:
 
             return cursor.fetchall()
 
-    # =========================================================
+    # =====================================================
     # FILES
-    # =========================================================
+    # =====================================================
 
     def create_file(
         self,
@@ -360,6 +443,7 @@ class Database:
         file_type="file",
         content=""
     ):
+
         with self.connect() as connection:
 
             connection.execute(
@@ -378,7 +462,12 @@ class Database:
 
             connection.commit()
 
-    def get_file(self, user_id, path):
+    def get_file(
+        self,
+        user_id,
+        path
+    ):
+
         with self.connect() as connection:
 
             cursor = connection.execute(
@@ -400,7 +489,12 @@ class Database:
 
             return cursor.fetchone()
 
-    def get_files(self, user_id, directory):
+    def get_files(
+        self,
+        user_id,
+        directory
+    ):
+
         prefix = directory.rstrip("/") + "/"
 
         with self.connect() as connection:
@@ -431,12 +525,14 @@ class Database:
         path,
         content
     ):
+
         with self.connect() as connection:
 
             connection.execute(
                 """
                 UPDATE files
-                SET content = ?,
+                SET
+                    content = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ?
                 AND path = ?
@@ -455,6 +551,7 @@ class Database:
         user_id,
         path
     ):
+
         with self.connect() as connection:
 
             connection.execute(
@@ -476,7 +573,73 @@ class Database:
         user_id,
         path
     ):
+
         return self.get_file(
             user_id,
             path
         ) is not None
+
+    # =====================================================
+    # AUDIT LOG
+    # =====================================================
+
+    def add_audit_log(
+        self,
+        actor_id,
+        action,
+        target_id=None,
+        details=""
+    ):
+
+        with self.connect() as connection:
+
+            connection.execute(
+                """
+                INSERT INTO audit_log
+                (
+                    actor_id,
+                    action,
+                    target_id,
+                    details
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    actor_id,
+                    action,
+                    target_id,
+                    details
+                )
+            )
+
+            connection.commit()
+
+    def get_audit_logs(
+        self,
+        limit=20
+    ):
+
+        limit = max(
+            1,
+            min(int(limit), 100)
+        )
+
+        with self.connect() as connection:
+
+            cursor = connection.execute(
+                """
+                SELECT
+                    id,
+                    actor_id,
+                    action,
+                    target_id,
+                    details,
+                    created_at
+                FROM audit_log
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,)
+            )
+
+            return cursor.fetchall()
