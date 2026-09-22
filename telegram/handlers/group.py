@@ -17,7 +17,8 @@ class GroupHandler:
     ):
         data = {
             "chat_id": chat_id,
-            "text": text
+            "text": text,
+            "parse_mode": "HTML"
         }
 
         if reply_markup:
