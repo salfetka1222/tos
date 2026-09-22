@@ -5,10 +5,6 @@ class DeveloperHandler:
         self.database = database
         self.developer = developer
 
-    # =====================================================
-    # TELEGRAM
-    # =====================================================
-
     def send_message(
         self,
         chat_id,
@@ -24,14 +20,13 @@ class DeveloperHandler:
         if reply_markup:
             data["reply_markup"] = reply_markup
 
-        return self.bot.request(
-            "sendMessage",
-            data
-        )
-
-    # =====================================================
-    # ACCESS
-    # =====================================================
+        try:
+            return self.bot.request(
+                "sendMessage",
+                data
+            )
+        except Exception:
+            return None
 
     def is_developer(self, user_id):
         try:
@@ -42,13 +37,11 @@ class DeveloperHandler:
     def access_denied(self, chat_id):
         self.send_message(
             chat_id,
-            "❌ <b>Доступ запрещён.</b>\n\n"
-            "Этот раздел доступен только разработчику."
+            (
+                "❌ <b>Доступ запрещён.</b>\n\n"
+                "Этот раздел доступен только разработчику."
+            )
         )
-
-    # =====================================================
-    # DEVELOPER PANEL
-    # =====================================================
 
     def show_panel(self, chat_id, user_id):
 
@@ -56,46 +49,37 @@ class DeveloperHandler:
             self.access_denied(chat_id)
             return
 
-        keyboard = [
-            [
-                {"text": "📊 Статистика"},
-                {"text": "👥 Пользователи"}
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "📊 Статистика"},
+                    {"text": "👥 Пользователи"}
+                ],
+                [
+                    {"text": "📜 Audit Log"},
+                    {"text": "🗄 Database"}
+                ],
+                [
+                    {"text": "🖥 System"}
+                ],
+                [
+                    {"text": "🏠 Главная"}
+                ]
             ],
-            [
-                {"text": "📜 Audit Log"},
-                {"text": "🗄 Database"}
-            ],
-            [
-                {"text": "🖥 System"}
-            ],
-            [
-                {"text": "🏠 Главная"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
             (
                 "🛠️ <b>T-OS DEVELOPER PANEL</b>\n\n"
-                "🔐 Уровень доступа: "
-                "<b>DEVELOPER</b>\n\n"
+                "🔐 Уровень доступа: <b>DEVELOPER</b>\n\n"
                 "Выберите системный раздел:"
             ),
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            keyboard
         )
 
-    # =====================================================
-    # STATISTICS
-    # =====================================================
-
-    def show_statistics(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_statistics(self, chat_id, user_id):
 
         if not self.is_developer(user_id):
             self.access_denied(chat_id)
@@ -104,51 +88,45 @@ class DeveloperHandler:
         try:
             stats = self.database.get_statistics()
         except Exception:
-            stats = {}
-
-        users = stats.get("users", 0)
-        messages = stats.get("messages", 0)
-        games = stats.get("games", 0)
-        files = stats.get("files", 0)
+            stats = {
+                "users": 0,
+                "files": 0,
+                "games": 0,
+                "commands": 0,
+                "audit_logs": 0
+            }
 
         text = (
             "📊 <b>T-OS STATISTICS</b>\n\n"
-            f"👥 Пользователи: <b>{users}</b>\n"
-            f"💬 Сообщения: <b>{messages}</b>\n"
-            f"🎮 Игры: <b>{games}</b>\n"
-            f"📁 Файлы: <b>{files}</b>"
+            f"👥 Пользователи: <b>{stats['users']}</b>\n"
+            f"📁 Файлы: <b>{stats['files']}</b>\n"
+            f"🎮 Игр сыграно: <b>{stats['games']}</b>\n"
+            f"⌨️ Команд: <b>{stats['commands']}</b>\n"
+            f"📜 Audit Log: <b>{stats['audit_logs']}</b>"
         )
 
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"}
+                ],
+                [
+                    {"text": "⬅️ Developer Panel"}
+                ],
+                [
+                    {"text": "🏠 Главная"}
+                ]
             ],
-            [
-                {"text": "⬅️ Developer Panel"}
-            ],
-            [
-                {"text": "🏠 Главная"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
             text,
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            keyboard
         )
 
-    # =====================================================
-    # USERS
-    # =====================================================
-
-    def show_users(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_users(self, chat_id, user_id):
 
         if not self.is_developer(user_id):
             self.access_denied(chat_id)
@@ -162,7 +140,7 @@ class DeveloperHandler:
         lines = [
             "👥 <b>T-OS USERS</b>",
             "",
-            f"📌 Всего пользователей: <b>{len(users)}</b>",
+            f"📌 Всего: <b>{len(users)}</b>",
             ""
         ]
 
@@ -171,71 +149,56 @@ class DeveloperHandler:
                 "📭 Пользователей пока нет."
             )
 
-        else:
-            for user in users[:30]:
+        for user in users[:30]:
 
-                username = user.get(
-                    "username"
-                )
+            username = user["username"]
+            user_id_value = user["user_id"]
+            level = user["level"]
+            xp = user["xp"]
+            coins = user["coins"]
 
-                first_name = user.get(
-                    "first_name"
-                )
+            if username:
+                name = f"@{username}"
+            else:
+                name = "Без username"
 
-                user_id_value = user.get(
-                    "user_id",
-                    "?"
-                )
+            lines.append(
+                f"👤 <b>{name}</b>\n"
+                f"   🆔 <code>{user_id_value}</code>\n"
+                f"   ⭐ Level: <b>{level}</b>\n"
+                f"   ✨ XP: <b>{xp}</b>\n"
+                f"   🪙 Coins: <b>{coins}</b>"
+            )
 
-                if username:
-                    name = f"@{username}"
-                elif first_name:
-                    name = first_name
-                else:
-                    name = "Без имени"
-
-                lines.append(
-                    f"👤 <b>{name}</b>\n"
-                    f"   🆔 <code>{user_id_value}</code>"
-                )
-
-                lines.append("")
+            lines.append("")
 
         text = "\n".join(lines)
 
         if len(text) > 3900:
             text = text[:3900] + "\n\n..."
 
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"}
+                ],
+                [
+                    {"text": "⬅️ Developer Panel"}
+                ],
+                [
+                    {"text": "🏠 Главная"}
+                ]
             ],
-            [
-                {"text": "⬅️ Developer Panel"}
-            ],
-            [
-                {"text": "🏠 Главная"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
             text,
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            keyboard
         )
 
-    # =====================================================
-    # AUDIT LOG
-    # =====================================================
-
-    def show_audit_log(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_audit_log(self, chat_id, user_id):
 
         if not self.is_developer(user_id):
             self.access_denied(chat_id)
@@ -254,89 +217,69 @@ class DeveloperHandler:
         ]
 
         if not logs:
-
             lines.append(
                 "📭 Журнал пока пуст."
             )
 
-        else:
+        for log in logs:
 
-            for log in logs:
+            actor = log["actor_id"]
+            action = log["action"]
+            target = log["target_id"]
+            details = log["details"]
+            created = log["created_at"]
 
-                action = log.get(
-                    "action",
-                    "unknown"
-                )
+            lines.append(
+                f"🕐 <code>{created}</code>"
+            )
 
-                actor = log.get(
-                    "user_id",
-                    "?"
-                )
+            lines.append(
+                f"👤 Actor: <code>{actor}</code>"
+            )
 
-                created = log.get(
-                    "created_at",
-                    "?"
-                )
+            lines.append(
+                f"⚙️ <b>{action}</b>"
+            )
 
-                details = log.get(
-                    "details",
-                    ""
-                )
-
+            if target is not None:
                 lines.append(
-                    f"🕐 <code>{created}</code>"
+                    f"🎯 Target: <code>{target}</code>"
                 )
 
+            if details:
                 lines.append(
-                    f"👤 <code>{actor}</code>"
+                    f"📝 {details}"
                 )
 
-                lines.append(
-                    f"⚙️ <b>{action}</b>"
-                )
-
-                if details:
-                    lines.append(
-                        f"📝 {details}"
-                    )
-
-                lines.append("")
+            lines.append("")
 
         text = "\n".join(lines)
 
         if len(text) > 3900:
             text = text[:3900] + "\n\n..."
 
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"}
+                ],
+                [
+                    {"text": "⬅️ Developer Panel"}
+                ],
+                [
+                    {"text": "🏠 Главная"}
+                ]
             ],
-            [
-                {"text": "⬅️ Developer Panel"}
-            ],
-            [
-                {"text": "🏠 Главная"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
             text,
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            keyboard
         )
 
-    # =====================================================
-    # DATABASE
-    # =====================================================
-
-    def show_database(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_database(self, chat_id, user_id):
 
         if not self.is_developer(user_id):
             self.access_denied(chat_id)
@@ -354,42 +297,34 @@ class DeveloperHandler:
 
         text = (
             "🗄️ <b>T-OS DATABASE</b>\n\n"
-            "💾 <b>Хранилище:</b> SQLite\n"
+            "💾 Хранилище: <b>SQLite</b>\n"
             f"👥 Пользователей: <b>{len(users)}</b>\n"
             f"📁 Файлов: <b>{len(files)}</b>\n\n"
-            "🟢 <b>Database:</b> ONLINE"
+            "🟢 Database: <b>ONLINE</b>"
         )
 
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"}
+                ],
+                [
+                    {"text": "⬅️ Developer Panel"}
+                ],
+                [
+                    {"text": "🏠 Главная"}
+                ]
             ],
-            [
-                {"text": "⬅️ Developer Panel"}
-            ],
-            [
-                {"text": "🏠 Главная"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
             text,
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            keyboard
         )
 
-    # =====================================================
-    # SYSTEM
-    # =====================================================
-
-    def show_system(
-        self,
-        chat_id,
-        user_id
-    ):
+    def show_system(self, chat_id, user_id):
 
         if not self.is_developer(user_id):
             self.access_denied(chat_id)
@@ -397,30 +332,31 @@ class DeveloperHandler:
 
         text = (
             "🖥️ <b>T-OS SYSTEM</b>\n\n"
-            "⚙️ <b>Режим:</b> Telegram Webhook\n"
-            "🗄️ <b>Database:</b> SQLite\n"
-            "🤖 <b>Group OS:</b> подключена\n"
-            "🎮 <b>Games:</b> подключены\n\n"
-            "🟢 <b>System:</b> ONLINE"
+            "⚙️ Webhook: <b>ONLINE</b>\n"
+            "🗄️ Database: <b>SQLite</b>\n"
+            "📁 Filesystem: <b>ONLINE</b>\n"
+            "💻 Terminal: <b>ONLINE</b>\n"
+            "🤖 Group OS: <b>ONLINE</b>\n"
+            "🎮 Games: <b>ONLINE</b>"
         )
 
-        keyboard = [
-            [
-                {"text": "🔄 Обновить"}
+        keyboard = {
+            "keyboard": [
+                [
+                    {"text": "🔄 Обновить"}
+                ],
+                [
+                    {"text": "⬅️ Developer Panel"}
+                ],
+                [
+                    {"text": "🏠 Главная"}
+                ]
             ],
-            [
-                {"text": "⬅️ Developer Panel"}
-            ],
-            [
-                {"text": "🏠 Главная"}
-            ]
-        ]
+            "resize_keyboard": True
+        }
 
         self.send_message(
             chat_id,
             text,
-            {
-                "keyboard": keyboard,
-                "resize_keyboard": True
-            }
+            keyboard
         )
