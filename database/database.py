@@ -21,3 +21,29 @@ class Database:
             """)
 
             connection.commit()
+
+    def create_user(self, user_id, username=None):
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO users
+                (user_id, username)
+                VALUES (?, ?)
+                """,
+                (user_id, username)
+            )
+
+            connection.commit()
+
+    def get_user(self, user_id):
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                SELECT user_id, username, level, xp, coins
+                FROM users
+                WHERE user_id = ?
+                """,
+                (user_id,)
+            )
+
+            return cursor.fetchone()
