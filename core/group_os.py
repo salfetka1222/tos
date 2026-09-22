@@ -1,131 +1,547 @@
+import sqlite3
 from datetime import datetime
 
 
 class GroupOS:
-    def __init__(self, bot):
+    """
+    Group OS для T-OS.
+
+    Отвечает за:
+    - настройки групп;
+    - статистику;
+    - действия модерации;
+    - права;
+    - Group Audit Log;
+    - настройки ИИ.
+    """
+
+    def __init__(self, bot, database=None):
         self.bot = bot
+        self.database = database
 
-    # ==========================================
-    # GROUP INFO
-    # ==========================================
+        # Если основной Database-класс передан — используем его БД.
+        # Иначе Group OS создаёт отдельную SQLite БД.
+        self.db_path = getattr(
+            database,
+            "db_path",
+            getattr(database, "path", "tos.db")
+        ) if database else "tos.db"
 
-    def get_group_info(self, chat_id):
-        result = self.bot.request(
+        self.init_database()
+
+    # =========================================================
+    # DATABASE
+    # =========================================================
+
+    def get_connection(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def init_database(self):
+        conn = self.get_connection()
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_settings (
+                chat_id TEXT PRIMARY KEY,
+                ai_enabled INTEGER NOT NULL DEFAULT 1,
+                ai_mode TEXT NOT NULL DEFAULT 'normal',
+                moderation_enabled INTEGER NOT NULL DEFAULT 1,
+                welcome_enabled INTEGER NOT NULL DEFAULT 0,
+                log_enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_statistics (
+                chat_id TEXT PRIMARY KEY,
+                messages INTEGER NOT NULL DEFAULT 0,
+                commands INTEGER NOT NULL DEFAULT 0,
+                moderation_actions INTEGER NOT NULL DEFAULT 0,
+                ai_requests INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id TEXT NOT NULL,
+                user_id TEXT,
+                action TEXT NOT NULL,
+                target_id TEXT,
+                details TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_group_audit_chat
+            ON group_audit_log(chat_id)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_group_audit_created
+            ON group_audit_log(created_at)
+        """)
+
+        conn.commit()
+        conn.close()
+
+    # =========================================================
+    # GROUP SETTINGS
+    # =========================================================
+
+    def ensure_group(self, chat_id):
+        chat_id = str(chat_id)
+        now = datetime.utcnow().isoformat()
+
+        conn = self.get_connection()
+
+        conn.execute("""
+            INSERT OR IGNORE INTO group_settings
+            (
+                chat_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?)
+        """, (chat_id, now, now))
+
+        conn.execute("""
+            INSERT OR IGNORE INTO group_statistics
+            (
+                chat_id,
+                updated_at
+            )
+            VALUES (?, ?)
+        """, (chat_id, now))
+
+        conn.commit()
+        conn.close()
+
+    def get_settings(self, chat_id):
+        self.ensure_group(chat_id)
+
+        conn = self.get_connection()
+
+        row = conn.execute("""
+            SELECT *
+            FROM group_settings
+            WHERE chat_id = ?
+        """, (str(chat_id),)).fetchone()
+
+        conn.close()
+
+        return dict(row) if row else None
+
+    def update_setting(self, chat_id, setting, value):
+        allowed = {
+            "ai_enabled",
+            "ai_mode",
+            "moderation_enabled",
+            "welcome_enabled",
+            "log_enabled",
+        }
+
+        if setting not in allowed:
+            return False
+
+        self.ensure_group(chat_id)
+
+        now = datetime.utcnow().isoformat()
+
+        conn = self.get_connection()
+
+        conn.execute(
+            f"""
+            UPDATE group_settings
+            SET {setting} = ?,
+                updated_at = ?
+            WHERE chat_id = ?
+            """,
+            (value, now, str(chat_id))
+        )
+
+        conn.commit()
+        conn.close()
+
+        return True
+
+    def toggle_ai(self, chat_id):
+        settings = self.get_settings(chat_id)
+
+        if not settings:
+            return False
+
+        new_value = 0 if settings["ai_enabled"] else 1
+
+        self.update_setting(
+            chat_id,
+            "ai_enabled",
+            new_value
+        )
+
+        return bool(new_value)
+
+    def toggle_moderation(self, chat_id):
+        settings = self.get_settings(chat_id)
+
+        if not settings:
+            return False
+
+        new_value = 0 if settings["moderation_enabled"] else 1
+
+        self.update_setting(
+            chat_id,
+            "moderation_enabled",
+            new_value
+        )
+
+        return bool(new_value)
+
+    # =========================================================
+    # STATISTICS
+    # =========================================================
+
+    def increment_stat(
+        self,
+        chat_id,
+        stat,
+        amount=1
+    ):
+        allowed = {
+            "messages",
+            "commands",
+            "moderation_actions",
+            "ai_requests",
+        }
+
+        if stat not in allowed:
+            return False
+
+        self.ensure_group(chat_id)
+
+        now = datetime.utcnow().isoformat()
+
+        conn = self.get_connection()
+
+        conn.execute(
+            f"""
+            UPDATE group_statistics
+            SET {stat} = {stat} + ?,
+                updated_at = ?
+            WHERE chat_id = ?
+            """,
+            (
+                amount,
+                now,
+                str(chat_id)
+            )
+        )
+
+        conn.commit()
+        conn.close()
+
+        return True
+
+    def get_statistics(self, chat_id):
+        self.ensure_group(chat_id)
+
+        conn = self.get_connection()
+
+        row = conn.execute("""
+            SELECT *
+            FROM group_statistics
+            WHERE chat_id = ?
+        """, (str(chat_id),)).fetchone()
+
+        conn.close()
+
+        return dict(row) if row else {
+            "chat_id": str(chat_id),
+            "messages": 0,
+            "commands": 0,
+            "moderation_actions": 0,
+            "ai_requests": 0,
+        }
+
+    # =========================================================
+    # AUDIT LOG
+    # =========================================================
+
+    def audit(
+        self,
+        chat_id,
+        action,
+        user_id=None,
+        target_id=None,
+        details=None
+    ):
+        settings = self.get_settings(chat_id)
+
+        if settings and not settings["log_enabled"]:
+            return False
+
+        conn = self.get_connection()
+
+        conn.execute("""
+            INSERT INTO group_audit_log
+            (
+                chat_id,
+                user_id,
+                action,
+                target_id,
+                details,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            str(chat_id),
+            str(user_id) if user_id is not None else None,
+            action,
+            str(target_id) if target_id is not None else None,
+            details,
+            datetime.utcnow().isoformat()
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return True
+
+    def get_audit_log(
+        self,
+        chat_id,
+        limit=50
+    ):
+        conn = self.get_connection()
+
+        rows = conn.execute("""
+            SELECT *
+            FROM group_audit_log
+            WHERE chat_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (
+            str(chat_id),
+            int(limit)
+        )).fetchall()
+
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    def clear_audit_log(self, chat_id):
+        conn = self.get_connection()
+
+        conn.execute("""
+            DELETE FROM group_audit_log
+            WHERE chat_id = ?
+        """, (str(chat_id),))
+
+        conn.commit()
+        conn.close()
+
+    # =========================================================
+    # TELEGRAM API
+    # =========================================================
+
+    def get_chat(self, chat_id):
+        return self.bot.request(
             "getChat",
             {
                 "chat_id": chat_id
             }
         )
 
-        if not result or not result.get("ok"):
-            return None
-
-        return result.get("result")
-
-    # ==========================================
-    # MEMBER COUNT
-    # ==========================================
-
     def get_member_count(self, chat_id):
-        result = self.bot.request(
+        return self.bot.request(
             "getChatMemberCount",
             {
                 "chat_id": chat_id
             }
         )
 
-        if not result or not result.get("ok"):
-            return 0
-
-        return result.get("result", 0)
-
-    # ==========================================
-    # ADMINISTRATORS
-    # ==========================================
+    def get_member(self, chat_id, user_id):
+        return self.bot.request(
+            "getChatMember",
+            {
+                "chat_id": chat_id,
+                "user_id": user_id
+            }
+        )
 
     def get_administrators(self, chat_id):
-        result = self.bot.request(
+        return self.bot.request(
             "getChatAdministrators",
             {
                 "chat_id": chat_id
             }
         )
 
-        if not result or not result.get("ok"):
-            return []
+    # =========================================================
+    # PERMISSIONS
+    # =========================================================
 
-        return result.get("result", [])
+    def get_user_status(
+        self,
+        chat_id,
+        user_id
+    ):
+        response = self.get_member(
+            chat_id,
+            user_id
+        )
 
-    # ==========================================
-    # MEMBERS SCREEN
-    # ==========================================
+        if not response or not response.get("ok"):
+            return None
 
-    def render_members(self, chat_id):
-        chat = self.get_group_info(chat_id)
+        result = response.get("result", {})
 
-        if not chat:
-            return "❌ Не удалось получить информацию о группе."
+        return result.get("status")
 
-        member_count = self.get_member_count(chat_id)
-        administrators = self.get_administrators(chat_id)
+    def is_admin(
+        self,
+        chat_id,
+        user_id
+    ):
+        status = self.get_user_status(
+            chat_id,
+            user_id
+        )
 
-        lines = [
-            "🖥️ <b>T-OS GROUP OS</b>",
-            "",
-            "👥 <b>УЧАСТНИКИ ГРУППЫ</b>",
-            "",
-            f"👥 <b>Всего участников:</b> {member_count}",
-            "",
-            "👑 <b>АДМИНИСТРАТОРЫ</b>",
-            ""
-        ]
+        return status in (
+            "creator",
+            "administrator"
+        )
 
-        if not administrators:
-            lines.append("Нет данных об администраторах.")
-        else:
-            for admin in administrators:
-                user = admin.get("user", {})
+    # =========================================================
+    # MODERATION
+    # =========================================================
 
-                user_id = user.get("id")
-                first_name = user.get("first_name", "")
-                last_name = user.get("last_name", "")
-                username = user.get("username")
+    def restrict_member(
+        self,
+        chat_id,
+        user_id,
+        permissions
+    ):
+        settings = self.get_settings(chat_id)
 
-                name = f"{first_name} {last_name}".strip()
+        if settings and not settings["moderation_enabled"]:
+            return {
+                "ok": False,
+                "error": "moderation_disabled"
+            }
 
-                if not name:
-                    name = "Без имени"
+        response = self.bot.request(
+            "restrictChatMember",
+            {
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "permissions": permissions
+            }
+        )
 
-                if username:
-                    display = f"{name} (@{username})"
-                else:
-                    display = name
+        if response and response.get("ok"):
+            self.increment_stat(
+                chat_id,
+                "moderation_actions"
+            )
 
-                status = admin.get("status", "")
+            self.audit(
+                chat_id,
+                "member_restricted",
+                target_id=user_id
+            )
 
-                if status == "creator":
-                    role = "👑 Владелец"
-                elif status == "administrator":
-                    role = "🛡 Администратор"
-                else:
-                    role = "👤"
+        return response
 
-                lines.append(
-                    f"{role} {display}"
-                )
+    def unrestrict_member(
+        self,
+        chat_id,
+        user_id
+    ):
+        permissions = {
+            "can_send_messages": True,
+            "can_send_audios": True,
+            "can_send_documents": True,
+            "can_send_photos": True,
+            "can_send_videos": True,
+            "can_send_video_notes": True,
+            "can_send_voice_notes": True,
+            "can_send_polls": True,
+            "can_send_other_messages": True,
+            "can_add_web_page_previews": True
+        }
 
-                lines.append(
-                    f"   🆔 <code>{user_id}</code>"
-                )
+        return self.restrict_member(
+            chat_id,
+            user_id,
+            permissions
+        )
 
-        lines.extend([
-            "",
-            "ℹ️ <i>Telegram не предоставляет ботам полный список участников группы.</i>",
-            "📡 <i>Доступны администраторы и общее количество участников.</i>",
-            "",
-            f"🟢 <b>T-OS:</b> ACTIVE",
-            "",
-            f"🕐 <b>Обновлено:</b> {datetime.now().strftime('%H:%M:%S')}"
-        ])
+    def ban_member(
+        self,
+        chat_id,
+        user_id
+    ):
+        settings = self.get_settings(chat_id)
 
-        return "\n".join(lines)
+        if settings and not settings["moderation_enabled"]:
+            return {
+                "ok": False,
+                "error": "moderation_disabled"
+            }
+
+        response = self.bot.request(
+            "banChatMember",
+            {
+                "chat_id": chat_id,
+                "user_id": user_id
+            }
+        )
+
+        if response and response.get("ok"):
+            self.increment_stat(
+                chat_id,
+                "moderation_actions"
+            )
+
+            self.audit(
+                chat_id,
+                "member_banned",
+                target_id=user_id
+            )
+
+        return response
+
+    def unban_member(
+        self,
+        chat_id,
+        user_id
+    ):
+        response = self.bot.request(
+            "unbanChatMember",
+            {
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "only_if_banned": False
+            }
+        )
+
+        if response and response.get("ok"):
+            self.increment_stat(
+                chat_id,
+                "moderation_actions"
+            )
+
+            self.audit(
+                chat_id,
+                "member_unbanned",
+                target_id=user_id
+            )
+
+        return response
