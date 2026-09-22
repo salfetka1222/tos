@@ -14,13 +14,15 @@ class TelegramHandler:
 
         text = message.get("text", "")
         chat_id = message["chat"]["id"]
+
         user = message.get("from", {})
         user_id = user.get("id")
 
-        self.database.create_user(
-            user_id,
-            user.get("username")
-        )
+        if user_id:
+            self.database.create_user(
+                user_id,
+                user.get("username")
+            )
 
         if text == "/start":
             self.show_home(chat_id)
@@ -28,25 +30,18 @@ class TelegramHandler:
         elif text == "📁 Файлы":
             self.show_files(chat_id, user_id)
 
-        elif text == "📂 Documents":
-            self.show_directory(
-                chat_id,
-                user_id,
-                "/home/user/Documents"
-            )
-
-        elif text == "📂 Projects":
-            self.show_directory(
-                chat_id,
-                user_id,
-                "/home/user/Projects"
-            )
-
         elif text == "📂 Desktop":
             self.show_directory(
                 chat_id,
                 user_id,
                 "/home/user/Desktop"
+            )
+
+        elif text == "📂 Documents":
+            self.show_directory(
+                chat_id,
+                user_id,
+                "/home/user/Documents"
             )
 
         elif text == "📂 Downloads":
@@ -61,6 +56,13 @@ class TelegramHandler:
                 chat_id,
                 user_id,
                 "/home/user/Pictures"
+            )
+
+        elif text == "📂 Projects":
+            self.show_directory(
+                chat_id,
+                user_id,
+                "/home/user/Projects"
             )
 
         elif text == "📂 Trash":
@@ -91,6 +93,9 @@ class TelegramHandler:
         elif text == "📦 App Store":
             self.show_app_store(chat_id)
 
+        elif text == "🖥️ Главное меню":
+            self.show_home(chat_id)
+
     def send_message(self, chat_id, text, keyboard=None):
         data = {
             "chat_id": chat_id,
@@ -109,20 +114,20 @@ class TelegramHandler:
         keyboard = [
             [
                 {"text": "📁 Файлы"},
-                {"text": "📝 Заметки"},
+                {"text": "📝 Заметки"}
             ],
             [
                 {"text": "💻 Терминал"},
-                {"text": "🧮 Калькулятор"},
+                {"text": "🧮 Калькулятор"}
             ],
             [
                 {"text": "🎮 Игры"},
-                {"text": "⚙️ Настройки"},
+                {"text": "⚙️ Настройки"}
             ],
             [
                 {"text": "👤 Профиль"},
-                {"text": "📦 App Store"},
-            ],
+                {"text": "📦 App Store"}
+            ]
         ]
 
         self.send_message(
@@ -141,7 +146,7 @@ class TelegramHandler:
             "/home/user/Downloads",
             "/home/user/Pictures",
             "/home/user/Projects",
-            "/home/user/Trash",
+            "/home/user/Trash"
         ]
 
         for folder in folders:
@@ -157,19 +162,19 @@ class TelegramHandler:
         keyboard = [
             [
                 {"text": "📂 Desktop"},
-                {"text": "📂 Documents"},
+                {"text": "📂 Documents"}
             ],
             [
                 {"text": "📂 Downloads"},
-                {"text": "📂 Pictures"},
+                {"text": "📂 Pictures"}
             ],
             [
                 {"text": "📂 Projects"},
-                {"text": "📂 Trash"},
+                {"text": "📂 Trash"}
             ],
             [
-                {"text": "🖥️ Главное меню"},
-            ],
+                {"text": "🖥️ Главное меню"}
+            ]
         ]
 
         self.send_message(
@@ -206,20 +211,15 @@ class TelegramHandler:
 
             found = True
 
+            filename = path.split("/")[-1]
+
             if file_type == "directory":
-                lines.append(
-                    f"📂 {path.split('/')[-1]}"
-                )
+                lines.append(f"📂 {filename}")
             else:
-                lines.append(
-                    f"📄 {path.split('/')[-1]}"
-                )
+                lines.append(f"📄 {filename}")
 
         if not found:
             lines.append("Папка пуста.")
-
-        lines.append("")
-        lines.append("Файловая система T-OS")
 
         self.send_message(
             chat_id,
@@ -227,7 +227,7 @@ class TelegramHandler:
             [
                 [
                     {"text": "📁 Файлы"},
-                    {"text": "🖥️ Главное меню"},
+                    {"text": "🖥️ Главное меню"}
                 ]
             ]
         )
