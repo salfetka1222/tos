@@ -12,20 +12,25 @@ class GroupOS:
     - действия модерации;
     - права;
     - Group Audit Log;
-    - настройки ИИ.
+    - настройки ИИ;
+    - отображение участников.
     """
 
     def __init__(self, bot, database=None):
         self.bot = bot
         self.database = database
 
-        # Если основной Database-класс передан — используем его БД.
-        # Иначе Group OS создаёт отдельную SQLite БД.
-        self.db_path = getattr(
-            database,
-            "db_path",
-            getattr(database, "path", "tos.db")
-        ) if database else "tos.db"
+        # Используем БД T-OS, если она передана.
+        # Это позволяет Group OS работать с той же SQLite БД,
+        # что и остальные компоненты системы.
+        if database:
+            self.db_path = getattr(
+                database,
+                "db_path",
+                getattr(database, "path", "tos.db")
+            )
+        else:
+            self.db_path = "tos.db"
 
         self.init_database()
 
@@ -162,7 +167,11 @@ class GroupOS:
                 updated_at = ?
             WHERE chat_id = ?
             """,
-            (value, now, str(chat_id))
+            (
+                value,
+                now,
+                str(chat_id)
+            )
         )
 
         conn.commit()
@@ -260,7 +269,10 @@ class GroupOS:
 
         conn.close()
 
-        return dict(row) if row else {
+        if row:
+            return dict(row)
+
+        return {
             "chat_id": str(chat_id),
             "messages": 0,
             "commands": 0,
@@ -317,6 +329,11 @@ class GroupOS:
         chat_id,
         limit=50
     ):
+        try:
+            limit = max(1, min(int(limit), 100))
+        except (TypeError, ValueError):
+            limit = 50
+
         conn = self.get_connection()
 
         rows = conn.execute("""
@@ -327,7 +344,7 @@ class GroupOS:
             LIMIT ?
         """, (
             str(chat_id),
-            int(limit)
+            limit
         )).fetchall()
 
         conn.close()
@@ -337,13 +354,87 @@ class GroupOS:
     def clear_audit_log(self, chat_id):
         conn = self.get_connection()
 
-        conn.execute("""
+        cursor = conn.execute("""
             DELETE FROM group_audit_log
             WHERE chat_id = ?
         """, (str(chat_id),))
 
+        deleted = cursor.rowcount
+
         conn.commit()
         conn.close()
+
+        return deleted
+
+    # =========================================================
+    # MEMBERS
+    # =========================================================
+
+    def render_members(self, chat_id):
+        """
+        Отображает доступную информацию об участниках группы.
+
+        Telegram Bot API не позволяет боту получить полный
+        список обычных участников группы, поэтому здесь
+        показываются администраторы и общее количество участников.
+        """
+
+        members_response = self.get_administrators(chat_id)
+        count_response = self.get_member_count(chat_id)
+
+        if not members_response or not members_response.get("ok"):
+            return "❌ Telegram не вернул список администраторов."
+
+        admins = members_response.get("result", [])
+
+        if count_response and count_response.get("ok"):
+            count = count_response.get("result", "?")
+        else:
+            count = "?"
+
+        lines = [
+            "👥 <b>УЧАСТНИКИ ГРУППЫ</b>",
+            "",
+            f"👤 Всего участников: <b>{count}</b>",
+            f"🛡 Администраторов: <b>{len(admins)}</b>",
+            ""
+        ]
+
+        for member in admins:
+            user = member.get("user", {})
+
+            user_id = user.get("id", "?")
+            username = user.get("username")
+
+            name = (
+                user.get("first_name")
+                or user.get("last_name")
+                or "Без имени"
+            )
+
+            if username:
+                label = f"@{username}"
+            else:
+                label = name
+
+            if member.get("status") == "creator":
+                status = "👑 Владелец"
+            else:
+                status = "🛡 Администратор"
+
+            lines.append(
+                f"{status} {label} <code>{user_id}</code>"
+            )
+
+        lines.extend([
+            "",
+            "ℹ️ Telegram Bot API не предоставляет боту "
+            "полный список обычных участников.",
+            "Здесь отображаются доступные администраторы "
+            "и общее число участников."
+        ])
+
+        return "\n".join(lines)
 
     # =========================================================
     # TELEGRAM API
