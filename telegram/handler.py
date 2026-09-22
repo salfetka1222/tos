@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 
 from telegram.bot import TelegramBot
 from games import GamesSystem
+from core.dev import DeveloperSystem
+
 
 
 # =========================================================
@@ -29,6 +31,11 @@ class TelegramHandler:
         self.database = database
 
         self.games = GamesSystem(database)
+        self.developer = DeveloperSystem(database)
+        
+        self.file_states = {}
+        self.terminal_dirs = {}
+        self.command_history = {}
 
         self.file_states = {}
         self.terminal_dirs = {}
