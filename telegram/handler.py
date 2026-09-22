@@ -55,7 +55,12 @@ class TelegramHandler:
     # TELEGRAM
     # =========================
 
-    def send_message(self, chat_id, text, reply_markup=None):
+    def send_message(
+        self,
+        chat_id,
+        text,
+        reply_markup=None
+    ):
         data = {
             "chat_id": chat_id,
             "text": text
@@ -77,6 +82,7 @@ class TelegramHandler:
     # =========================
 
     def main_menu(self, chat_id):
+
         keyboard = {
             "keyboard": [
                 [
@@ -115,6 +121,7 @@ class TelegramHandler:
     # =========================
 
     def show_help(self, chat_id):
+
         self.send_message(
             chat_id,
             (
@@ -200,7 +207,7 @@ class TelegramHandler:
                 pass
 
         # =========================
-        # FIRST START
+        # START
         # =========================
 
         if text == "/start":
@@ -218,15 +225,17 @@ class TelegramHandler:
             return
 
         # =========================
-        # TERMINAL
+        # TERMINAL COMMANDS
         # =========================
 
         try:
+
             if self.terminal.handle_command(
                 chat_id,
                 user_id,
                 text
             ):
+
                 try:
                     self.achievements.unlock(
                         chat_id,
@@ -242,11 +251,30 @@ class TelegramHandler:
             pass
 
         # =========================
-        # FILESYSTEM STATE
+        # FILESYSTEM STATES
         # =========================
 
         try:
-            # Получаем список файлов ДО действия
+
+            # Сначала обрабатываем специальные состояния
+            state_handled = self.filesystem.handle_state_input(
+                chat_id,
+                user_id,
+                text
+            )
+
+            if state_handled:
+                return
+
+        except Exception:
+            pass
+
+        # =========================
+        # FILESYSTEM INPUT
+        # =========================
+
+        try:
+
             before_files = []
 
             try:
@@ -259,13 +287,13 @@ class TelegramHandler:
             before_file_count = 0
 
             for file in before_files:
+
                 try:
                     if file["file_type"] == "file":
                         before_file_count += 1
                 except Exception:
                     pass
 
-            # Передаём сообщение файловой системе
             filesystem_handled = self.filesystem.handle_input(
                 chat_id,
                 user_id,
@@ -274,7 +302,6 @@ class TelegramHandler:
 
             if filesystem_handled:
 
-                # Получаем список файлов ПОСЛЕ действия
                 after_files = []
 
                 try:
@@ -287,14 +314,14 @@ class TelegramHandler:
                 after_file_count = 0
 
                 for file in after_files:
+
                     try:
                         if file["file_type"] == "file":
                             after_file_count += 1
                     except Exception:
                         pass
 
-                # Если появился новый файл,
-                # выдаём достижение
+                # Первое созданное достижение
                 if after_file_count > before_file_count:
 
                     try:
@@ -328,6 +355,14 @@ class TelegramHandler:
         # =========================
 
         if text == "/new":
+
+            try:
+                self.filesystem.cancel(
+                    user_id
+                )
+            except Exception:
+                pass
+
             self.main_menu(chat_id)
             return
 
@@ -336,10 +371,12 @@ class TelegramHandler:
         # =========================
 
         if text == "👤 Мой профиль":
+
             self.profile.show_profile(
                 chat_id,
                 user_id
             )
+
             return
 
         # =========================
@@ -347,21 +384,123 @@ class TelegramHandler:
         # =========================
 
         if text == "🏆 Достижения":
+
             self.achievements.show_achievements(
                 chat_id,
                 user_id
             )
+
             return
 
         # =========================
-        # FILESYSTEM
+        # FILESYSTEM MAIN
         # =========================
 
         if text == "📁 Файловая система":
+
             self.filesystem.show_filesystem(
                 chat_id,
                 user_id
             )
+
+            return
+
+        # =========================
+        # FILESYSTEM BUTTONS
+        # =========================
+
+        if text == "📂 Мои файлы":
+
+            self.filesystem.show_files(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "📄 Создать файл":
+
+            self.filesystem.create_file_start(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "📁 Создать папку":
+
+            self.filesystem.create_folder_start(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "🔄 Обновить":
+
+            current_directory = (
+                self.filesystem.get_current_directory(
+                    user_id
+                )
+            )
+
+            self.filesystem.show_files(
+                chat_id,
+                user_id,
+                current_directory
+            )
+
+            return
+
+        if text == "⬅️ Назад":
+
+            self.filesystem.go_back(
+                chat_id,
+                user_id
+            )
+
+            return
+
+        if text == "✏️ Изменить файл":
+
+            try:
+                state = self.filesystem.states.get(
+                    user_id,
+                    {}
+                )
+
+                path = state.get("path")
+
+                self.filesystem.edit_file_start(
+                    chat_id,
+                    user_id,
+                    path
+                )
+
+            except Exception:
+                pass
+
+            return
+
+        if text == "🗑 Удалить файл":
+
+            try:
+                state = self.filesystem.states.get(
+                    user_id,
+                    {}
+                )
+
+                path = state.get("path")
+
+                self.filesystem.delete_file_start(
+                    chat_id,
+                    user_id,
+                    path
+                )
+
+            except Exception:
+                pass
+
             return
 
         # =========================
@@ -369,31 +508,39 @@ class TelegramHandler:
         # =========================
 
         if text == "💻 Terminal":
+
             self.terminal.show_terminal(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "📂 ls":
+
             self.terminal.command_ls(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "📍 pwd":
+
             self.terminal.command_pwd(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "🧹 clear":
+
             self.terminal.command_clear(
                 chat_id,
                 user_id
             )
+
             return
 
         # =========================
@@ -401,66 +548,75 @@ class TelegramHandler:
         # =========================
 
         if text == "👥 Group OS":
+
             self.group.show_group_dashboard(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "👥 Участники":
+
             self.group.show_members(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "🛡 Модерация":
+
             self.group.show_moderation(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "📜 Журнал группы":
+
             self.group.show_audit_log(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "⚙️ Права доступа":
+
             self.group.show_permissions(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "🤖 Настройки ИИ":
+
             self.group.show_ai_settings(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "📊 Статистика группы":
+
             self.group.show_statistics(
                 chat_id,
                 user_id
             )
-            return
 
-        if text == "🔄 Обновить":
-            self.group.show_group_dashboard(
-                chat_id,
-                user_id
-            )
             return
 
         if text == "⬅️ Назад в Group OS":
+
             self.group.show_group_dashboard(
                 chat_id,
                 user_id
             )
+
             return
 
         # =========================
@@ -468,45 +624,57 @@ class TelegramHandler:
         # =========================
 
         if text == "🛠 Dev Panel":
+
             self.dev_panel.show_panel(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "📊 Статистика":
+
             self.dev_panel.show_statistics(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "👥 Пользователи":
+
             self.dev_panel.show_users(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "📜 Audit Log":
+
             self.dev_panel.show_audit_log(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "🗄 Database":
+
             self.dev_panel.show_database(
                 chat_id,
                 user_id
             )
+
             return
 
         if text == "🖥 System":
+
             self.dev_panel.show_system(
                 chat_id,
                 user_id
             )
+
             return
 
         # =========================
@@ -517,7 +685,16 @@ class TelegramHandler:
             "🏠 Главная",
             "🖥️ Главное меню"
         ):
+
+            try:
+                self.filesystem.cancel(
+                    user_id
+                )
+            except Exception:
+                pass
+
             self.main_menu(chat_id)
+
             return
 
         # =========================
