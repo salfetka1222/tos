@@ -1,25 +1,28 @@
 from core.user import User
+from database.database import Database
 
 
 class UserManager:
-    def __init__(self):
-        self.users = {}
+    def __init__(self, database):
+        self.database = database
 
     def create_user(self, user_id, username=None):
-        if user_id in self.users:
-            return self.users[user_id]
+        self.database.create_user(user_id, username)
 
-        user = User(user_id, username)
-        self.users[user_id] = user
+        data = self.database.get_user(user_id)
 
-        return user
+        return User(
+            user_id=data[0],
+            username=data[1],
+        )
 
     def get_user(self, user_id):
-        return self.users.get(user_id)
+        data = self.database.get_user(user_id)
 
-    def delete_user(self, user_id):
-        if user_id in self.users:
-            del self.users[user_id]
+        if data is None:
+            return None
 
-    def count(self):
-        return len(self.users)
+        return User(
+            user_id=data[0],
+            username=data[1],
+        )
