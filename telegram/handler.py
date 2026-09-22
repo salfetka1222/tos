@@ -246,12 +246,68 @@ class TelegramHandler:
         # =========================
 
         try:
-            if self.filesystem.handle_input(
+            # Получаем список файлов ДО действия
+            before_files = []
+
+            try:
+                before_files = self.database.get_all_files(
+                    user_id
+                )
+            except Exception:
+                before_files = []
+
+            before_file_count = 0
+
+            for file in before_files:
+                try:
+                    if file["file_type"] == "file":
+                        before_file_count += 1
+                except Exception:
+                    pass
+
+            # Передаём сообщение файловой системе
+            filesystem_handled = self.filesystem.handle_input(
                 chat_id,
                 user_id,
                 text
-            ):
+            )
+
+            if filesystem_handled:
+
+                # Получаем список файлов ПОСЛЕ действия
+                after_files = []
+
+                try:
+                    after_files = self.database.get_all_files(
+                        user_id
+                    )
+                except Exception:
+                    after_files = []
+
+                after_file_count = 0
+
+                for file in after_files:
+                    try:
+                        if file["file_type"] == "file":
+                            after_file_count += 1
+                    except Exception:
+                        pass
+
+                # Если появился новый файл,
+                # выдаём достижение
+                if after_file_count > before_file_count:
+
+                    try:
+                        self.achievements.unlock(
+                            chat_id,
+                            user_id,
+                            "first_file"
+                        )
+                    except Exception:
+                        pass
+
                 return
+
         except Exception:
             pass
 
